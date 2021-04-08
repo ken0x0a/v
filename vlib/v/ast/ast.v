@@ -259,6 +259,7 @@ pub:
 pub struct InterfaceDecl {
 pub:
 	name         string
+	name_pos     token.Position
 	field_names  []string
 	is_pub       bool
 	methods      []FnDecl
@@ -365,7 +366,6 @@ pub:
 	language        Language
 	no_body         bool // just a definition `fn C.malloc()`
 	is_builtin      bool // this function is defined in builtin/strconv
-	pos             token.Position // function declaration position
 	body_pos        token.Position // function bodys position
 	file            string
 	generic_params  []GenericParam
@@ -373,15 +373,17 @@ pub:
 	attrs           []Attr
 	skip_gen        bool // this function doesn't need to be generated (for example [if foo])
 pub mut:
-	stmts         []Stmt
-	defer_stmts   []DeferStmt
-	return_type   Type
-	has_return    bool
-	comments      []Comment // comments *after* the header, but *before* `{`; used for InterfaceDecl
-	next_comments []Comment // coments that are one line after the decl; used for InterfaceDecl
-	source_file   &File = 0
-	scope         &Scope
-	label_names   []string
+	stmts           []Stmt
+	defer_stmts     []DeferStmt
+	return_type     Type
+	return_type_pos token.Position // `string` in `fn (u User) name() string` position
+	has_return      bool
+	comments        []Comment // comments *after* the header, but *before* `{`; used for InterfaceDecl
+	next_comments   []Comment // coments that are one line after the decl; used for InterfaceDecl
+	source_file     &File = 0
+	scope           &Scope
+	label_names     []string
+	pos             token.Position // function declaration position
 }
 
 pub struct GenericParam {
@@ -541,6 +543,8 @@ pub struct File {
 pub:
 	path         string // absolute path of the source file - '/projects/v/file.v'
 	path_base    string // file name - 'file.v' (useful for tracing)
+	lines        int    // number of source code lines in the file (including newlines and comments)
+	bytes        int    // number of processed source code bytes
 	mod          Module // the module of the source file (from `module xyz` at the top)
 	global_scope &Scope
 pub mut:
@@ -1067,7 +1071,7 @@ pub mut:
 	typname   string // TypeSymbol.name
 	expr_type Type   // `byteptr`
 	has_arg   bool
-	in_prexpr bool // is the parent node an PrefixExpr
+	in_prexpr bool // is the parent node a PrefixExpr
 }
 
 pub struct AsmStmt {
@@ -1408,6 +1412,7 @@ pub enum SqlStmtKind {
 	insert
 	update
 	delete
+	create
 }
 
 pub struct SqlStmt {
@@ -1473,12 +1478,18 @@ pub fn (expr Expr) position() token.Position {
 			// println('compiler bug, unhandled EmptyExpr position()')
 			return token.Position{}
 		}
-		NodeError, ArrayDecompose, ArrayInit, AsCast, Assoc, AtExpr, BoolLiteral, CallExpr, CastExpr,
-		ChanInit, CharLiteral, ConcatExpr, Comment, ComptimeCall, ComptimeSelector, EnumVal, DumpExpr,
-		FloatLiteral, GoExpr, Ident, IfExpr, IndexExpr, IntegerLiteral, Likely, LockExpr, MapInit,
-		MatchExpr, None, OffsetOf, OrExpr, ParExpr, PostfixExpr, PrefixExpr, RangeExpr, SelectExpr,
-		SelectorExpr, SizeOf, SqlExpr, StringInterLiteral, StringLiteral, StructInit, TypeNode,
-		TypeOf, UnsafeExpr {
+		NodeError, ArrayDecompose, ArrayInit, AsCast, Assoc, AtExpr, BoolLiteral, CallExpr,
+		CastExpr, ChanInit, CharLiteral, ConcatExpr, Comment, ComptimeCall, ComptimeSelector,
+		EnumVal, DumpExpr, FloatLiteral, GoExpr, Ident, IfExpr, IntegerLiteral, Likely, LockExpr,
+		MapInit, MatchExpr, None, OffsetOf, OrExpr, ParExpr, PostfixExpr, PrefixExpr, RangeExpr,
+		SelectExpr, SelectorExpr, SizeOf, SqlExpr, StringInterLiteral, StringLiteral, StructInit,
+		TypeNode, TypeOf, UnsafeExpr {
+			return expr.pos
+		}
+		IndexExpr {
+			if expr.or_expr.kind != .absent {
+				return expr.or_expr.pos
+			}
 			return expr.pos
 		}
 		IfGuardExpr {
@@ -1595,6 +1606,12 @@ pub fn (node Node) position() token.Position {
 					pos = pos.extend(sym.pos)
 				}
 			}
+			if node is AssignStmt {
+				return pos.extend(node.right.last().position())
+			}
+			if node is AssertStmt {
+				return pos.extend(node.expr.position())
+			}
 			return pos
 		}
 		Expr {
@@ -1603,7 +1620,7 @@ pub fn (node Node) position() token.Position {
 		StructField {
 			return node.pos.extend(node.type_pos)
 		}
-		MatchBranch, SelectBranch, EnumField, ConstField, StructInitField, GlobalField, Param {
+		MatchBranch, SelectBranch, EnumField, ConstField, StructInitField, GlobalField, CallArg {
 			return node.pos
 		}
 		IfBranch {
@@ -1625,6 +1642,9 @@ pub fn (node Node) position() token.Position {
 				}
 			}
 		}
+		Param {
+			return node.pos.extend(node.type_pos)
+		}
 		File {
 			mut pos := token.Position{}
 			if node.stmts.len > 0 {
@@ -1633,9 +1653,6 @@ pub fn (node Node) position() token.Position {
 				pos = first_pos.extend_with_last_line(last_pos, last_pos.line_nr)
 			}
 			return pos
-		}
-		CallArg {
-			return node.pos
 		}
 	}
 }
@@ -1719,7 +1736,8 @@ pub fn (node Node) children() []Node {
 				children << node.expr
 			}
 			InterfaceDecl {
-				return node.methods.map(Node(Stmt(it)))
+				children << node.methods.map(Node(Stmt(it)))
+				children << node.fields.map(Node(it))
 			}
 			AssignStmt {
 				children << node.left.map(Node(it))

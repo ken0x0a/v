@@ -32,6 +32,7 @@ mut:
 	warnings             []errors.Warning
 	syms                 []Symbol
 	relocs               []Reloc
+	nlines               int
 }
 
 // string_addr map[string]i64
@@ -81,7 +82,7 @@ enum Size {
 	_64
 }
 
-pub fn gen(files []ast.File, table &ast.Table, out_name string, pref &pref.Preferences) {
+pub fn gen(files []ast.File, table &ast.Table, out_name string, pref &pref.Preferences) (int, int) {
 	mut g := Gen{
 		table: table
 		sect_header_name_pos: 0
@@ -96,6 +97,7 @@ pub fn gen(files []ast.File, table &ast.Table, out_name string, pref &pref.Prefe
 		g.stmts(file.stmts)
 	}
 	g.generate_elf_footer()
+	return g.nlines, g.buf.len
 }
 
 pub fn (mut g Gen) stmts(stmts []ast.Stmt) {
@@ -272,6 +274,7 @@ fn (mut g Gen) jle(addr i64) {
 }
 
 fn (mut g Gen) println(comment string) {
+	g.nlines++
 	if !g.pref.is_verbose {
 		return
 	}
@@ -666,7 +669,7 @@ fn (mut g Gen) stmt(node ast.Stmt) {
 				if word.len != 2 {
 					verror('opcodes format: xx xx xx xx')
 				}
-				b := unsafe { C.strtol(charptr(word.str), 0, 16) }
+				b := unsafe { C.strtol(&char(word.str), 0, 16) }
 				// b := word.byte()
 				// println('"$word" $b')
 				g.write8(b)
@@ -684,7 +687,7 @@ fn (mut g Gen) stmt(node ast.Stmt) {
 	}
 }
 
-fn C.strtol(str charptr, endptr &&char, base int) int
+fn C.strtol(str &char, endptr &&char, base int) int
 
 fn (mut g Gen) expr(node ast.Expr) {
 	// println('cgen expr()')

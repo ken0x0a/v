@@ -71,7 +71,7 @@ fn print_backtrace_skipping_top_frames_freebsd(skipframes int) bool {
 	return true
 }
 
-fn C.tcc_backtrace(fmt charptr, other ...charptr) int
+fn C.tcc_backtrace(fmt &char) int
 fn print_backtrace_skipping_top_frames_linux(skipframes int) bool {
 	$if android {
 		eprintln('On Android no backtrace is available.')
@@ -86,7 +86,7 @@ fn print_backtrace_skipping_top_frames_linux(skipframes int) bool {
 		return false
 	} $else {
 		$if tinyc {
-			C.tcc_backtrace('Backtrace')
+			C.tcc_backtrace(c'Backtrace')
 			return false
 		}
 		buffer := [100]voidptr{}
@@ -100,7 +100,7 @@ fn print_backtrace_skipping_top_frames_linux(skipframes int) bool {
 		//////csymbols := backtrace_symbols(*voidptr(&buffer[skipframes]), nr_actual_frames)
 		csymbols := C.backtrace_symbols(voidptr(&buffer[skipframes]), nr_actual_frames)
 		for i in 0 .. nr_actual_frames {
-			sframes << unsafe { tos2(byteptr(csymbols[i])) }
+			sframes << unsafe { tos2(&byte(csymbols[i])) }
 		}
 		for sframe in sframes {
 			executable := sframe.all_before('(')
@@ -108,7 +108,7 @@ fn print_backtrace_skipping_top_frames_linux(skipframes int) bool {
 			beforeaddr := sframe.all_before('[')
 			cmd := 'addr2line -e $executable $addr'
 			// taken from os, to avoid depending on the os module inside builtin.v
-			f := C.popen(charptr(cmd.str), 'r')
+			f := C.popen(&char(cmd.str), c'r')
 			if isnil(f) {
 				eprintln(sframe)
 				continue
@@ -117,7 +117,7 @@ fn print_backtrace_skipping_top_frames_linux(skipframes int) bool {
 			mut output := ''
 			unsafe {
 				bp := &buf[0]
-				for C.fgets(charptr(bp), 1000, f) != 0 {
+				for C.fgets(&char(bp), 1000, f) != 0 {
 					output += tos(bp, vstrlen(bp))
 				}
 			}

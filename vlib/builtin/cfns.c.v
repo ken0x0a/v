@@ -1,18 +1,18 @@
 module builtin
 
 // <string.h>
-fn C.memcpy(dest byteptr, src byteptr, n int) voidptr
+fn C.memcpy(dest &byte, src &byte, n int) voidptr
 
-fn C.memcmp(byteptr, byteptr, int) int
+fn C.memcmp(&byte, &byte, int) int
 
-fn C.memmove(byteptr, byteptr, int) voidptr
+fn C.memmove(&byte, &byte, int) voidptr
 
 [trusted]
-fn C.calloc(int, int) byteptr
+fn C.calloc(int, int) &byte
 
-fn C.malloc(int) byteptr
+fn C.malloc(int) &byte
 
-fn C.realloc(a byteptr, b int) byteptr
+fn C.realloc(a &byte, b int) &byte
 
 fn C.free(ptr voidptr)
 
@@ -23,43 +23,43 @@ fn C.qsort(base voidptr, items size_t, item_size size_t, cb qsort_callback_func)
 
 fn C.sprintf(a ...voidptr) int
 
-fn C.strlen(s charptr) int
+fn C.strlen(s &char) int
 
-fn C.sscanf(byteptr, byteptr, ...byteptr) int
+fn C.sscanf(&byte, &byte, ...&byte) int
 
 [trusted]
 fn C.isdigit(c int) bool
 
 // stdio.h
-fn C.popen(c charptr, t charptr) voidptr
+fn C.popen(c &char, t &char) voidptr
 
 // <execinfo.h>
 fn C.backtrace(a &voidptr, size int) int
 
-fn C.backtrace_symbols(a &voidptr, size int) &charptr
+fn C.backtrace_symbols(a &voidptr, size int) &&char
 
 fn C.backtrace_symbols_fd(a &voidptr, size int, fd int)
 
 // <libproc.h>
 pub fn proc_pidpath(int, voidptr, int) int
 
-fn C.realpath(charptr, charptr) &char
+fn C.realpath(&char, &char) &char
 
 // fn C.chmod(byteptr, mode_t) int
-fn C.chmod(byteptr, u32) int
+fn C.chmod(&char, u32) int
 
-fn C.printf(byteptr, ...voidptr) int
+fn C.printf(&char, ...voidptr) int
 
-fn C.puts(byteptr) int
+fn C.puts(&char) int
 
-fn C.fputs(str byteptr, stream &C.FILE) int
+fn C.fputs(str &char, stream &C.FILE) int
 
 fn C.fflush(&C.FILE) int
 
 // TODO define args in these functions
 fn C.fseek(stream &C.FILE, offset int, whence int) int
 
-fn C.fopen(filename charptr, mode charptr) &C.FILE
+fn C.fopen(filename &char, mode &char) &C.FILE
 
 fn C.fileno(&C.FILE) int
 
@@ -72,15 +72,22 @@ fn C.fclose(stream &C.FILE) int
 fn C.pclose(stream &C.FILE) int
 
 // process execution, os.process:
+[trusted]
 fn C.getpid() int
 
-fn C.system(cmd charptr) int
+fn C.system(cmd &char) int
 
-fn C.posix_spawn(child_pid &int, path charptr, file_actions voidptr, attrp voidptr, argv &charptr, envp &charptr) int
+fn C.posix_spawn(child_pid &int, path &char, file_actions voidptr, attrp voidptr, argv &&char, envp &&char) int
 
-fn C.posix_spawnp(child_pid &int, exefile charptr, file_actions voidptr, attrp voidptr, argv &charptr, envp &charptr) int
+fn C.posix_spawnp(child_pid &int, exefile &char, file_actions voidptr, attrp voidptr, argv &&char, envp &&char) int
 
-fn C.execve(cmd_path charptr, args voidptr, envs voidptr) int
+fn C.execve(cmd_path &char, args voidptr, envs voidptr) int
+
+fn C.execvp(cmd_path &char, args &&char) int
+
+fn C._execve(cmd_path &char, args voidptr, envs voidptr) int
+
+fn C._execvp(cmd_path &char, args &&char) int
 
 [trusted]
 fn C.fork() int
@@ -89,38 +96,41 @@ fn C.wait(status &int) int
 
 fn C.waitpid(pid int, status &int, options int) int
 
+[trusted]
 fn C.kill(pid int, sig int) int
 
-fn C.setenv(charptr, charptr, int) int
+fn C.setenv(&char, &char, int) int
 
-fn C.unsetenv(charptr) int
+fn C.unsetenv(&char) int
 
-fn C.access(path charptr, amode int) int
+fn C.access(path &char, amode int) int
 
-fn C.remove(filename charptr) int
+fn C.remove(filename &char) int
 
-fn C.rmdir(path charptr) int
+fn C.rmdir(path &char) int
 
-fn C.chdir(path charptr) int
+fn C.chdir(path &char) int
 
 fn C.rewind(stream &C.FILE) int
 
-fn C.stat(charptr, voidptr) int
+fn C.stat(&char, voidptr) int
 
-fn C.lstat(path charptr, buf &C.stat) int
+fn C.lstat(path &char, buf &C.stat) int
 
-fn C.rename(old_filename charptr, new_filename charptr) int
+fn C.rename(old_filename &char, new_filename &char) int
 
-fn C.fgets(str charptr, n int, stream &C.FILE) int
+fn C.fgets(str &char, n int, stream &C.FILE) int
 
 fn C.memset(str voidptr, c int, n size_t) int
 
+[trusted]
 fn C.sigemptyset() int
 
-fn C.getcwd(buf charptr, size size_t) charptr
+fn C.getcwd(buf &char, size size_t) &char
 
 fn C.signal(signal int, handlercb voidptr) voidptr
 
+[trusted]
 fn C.mktime() int
 
 fn C.gettimeofday(tv &C.timeval, tz &C.timezone) int
@@ -129,14 +139,15 @@ fn C.gettimeofday(tv &C.timeval, tz &C.timezone) int
 fn C.sleep(seconds u32) u32
 
 // fn C.usleep(usec useconds_t) int
+[trusted]
 fn C.usleep(usec u32) int
 
-fn C.opendir(charptr) voidptr
+fn C.opendir(&char) voidptr
 
 fn C.closedir(dirp &C.DIR) int
 
-// fn C.mkdir(path charptr, mode mode_t) int
-fn C.mkdir(path charptr, mode u32) int
+// fn C.mkdir(path &char, mode mode_t) int
+fn C.mkdir(path &char, mode u32) int
 
 // C.rand returns a pseudorandom integer from 0 (inclusive) to C.RAND_MAX (exclusive)
 [trusted]
@@ -146,36 +157,44 @@ fn C.rand() int
 [trusted]
 fn C.srand(seed u32)
 
-fn C.atof(str charptr) f64
+fn C.atof(str &char) f64
 
+[trusted]
 fn C.tolower(c int) int
 
+[trusted]
 fn C.toupper(c int) int
 
 [trusted]
 fn C.getchar() int
 
 [trusted]
-fn C.strerror(int) charptr
+fn C.strerror(int) &char
 
-fn C.snprintf(str charptr, size size_t, format charptr, opt ...voidptr) int
+fn C.snprintf(str &char, size size_t, format &char, opt ...voidptr) int
 
-fn C.fprintf(byteptr, ...byteptr)
+fn C.fprintf(voidptr, &char, ...voidptr)
 
+[trusted]
 fn C.WIFEXITED(status int) bool
 
+[trusted]
 fn C.WEXITSTATUS(status int) int
 
+[trusted]
 fn C.WIFSIGNALED(status int) bool
 
+[trusted]
 fn C.WTERMSIG(status int) int
 
+[trusted]
 fn C.isatty(fd int) int
 
 fn C.syscall(number int, va ...voidptr) int
 
 fn C.sysctl(name &int, namelen u32, oldp voidptr, oldlenp voidptr, newp voidptr, newlen size_t) int
 
+[trusted]
 fn C._fileno(int) int
 
 fn C._get_osfhandle(fd int) C.intptr_t
@@ -196,6 +215,7 @@ fn C.SetHandleInformation(hObject voidptr, dwMask u32, dw_flags u32) bool
 
 fn C.ExpandEnvironmentStringsW(lpSrc &u16, lpDst &u16, nSize u32) u32
 
+[trusted]
 fn C.SendMessageTimeout() u32
 
 fn C.SendMessageTimeoutW(hWnd voidptr, Msg u32, wParam &u16, lParam &u32, fuFlags u32, uTimeout u32, lpdwResult &u64) u32
@@ -204,11 +224,11 @@ fn C.CreateProcessW(lpApplicationName &u16, lpCommandLine &u16, lpProcessAttribu
 
 fn C.ReadFile(hFile voidptr, lpBuffer voidptr, nNumberOfBytesToRead u32, lpNumberOfBytesRead C.LPDWORD, lpOverlapped voidptr) bool
 
-fn C.GetFileAttributesW(lpFileName byteptr) u32
+fn C.GetFileAttributesW(lpFileName &byte) u32
 
-fn C.RegQueryValueEx(hKey voidptr, lpValueName &u16, lp_reserved &u32, lpType &u32, lpData byteptr, lpcbData &u32) voidptr
+fn C.RegQueryValueEx(hKey voidptr, lpValueName &u16, lp_reserved &u32, lpType &u32, lpData &byte, lpcbData &u32) voidptr
 
-fn C.RegQueryValueExW(hKey voidptr, lpValueName &u16, lp_reserved &u32, lpType &u32, lpData byteptr, lpcbData &u32) int
+fn C.RegQueryValueExW(hKey voidptr, lpValueName &u16, lp_reserved &u32, lpType &u32, lpData &byte, lpcbData &u32) int
 
 fn C.RegOpenKeyEx(hKey voidptr, lpSubKey &u16, ulOptions u32, samDesired u32, phkResult voidptr) voidptr
 
@@ -216,11 +236,11 @@ fn C.RegOpenKeyExW(hKey voidptr, lpSubKey &u16, ulOptions u32, samDesired u32, p
 
 fn C.RegSetValueEx() voidptr
 
-fn C.RegSetValueExW(hKey voidptr, lpValueName &u16, Reserved u32, dwType u32, lpData byteptr, lpcbData u32) int
+fn C.RegSetValueExW(hKey voidptr, lpValueName &u16, Reserved u32, dwType u32, lpData &byte, lpcbData u32) int
 
 fn C.RegCloseKey(hKey voidptr)
 
-fn C.RemoveDirectory(lpPathName charptr) int
+fn C.RemoveDirectory(lpPathName &char) int
 
 // fn C.GetStdHandle() voidptr
 fn C.GetStdHandle(u32) voidptr
@@ -231,20 +251,21 @@ fn C.SetConsoleMode(voidptr, u32) int
 // fn C.GetConsoleMode() int
 fn C.GetConsoleMode(voidptr, &u32) int
 
+[trusted]
 fn C.GetCurrentProcessId() int
 
 fn C.wprintf()
 
 // fn C.setbuf()
-fn C.setbuf(voidptr, charptr)
+fn C.setbuf(voidptr, &char)
 
 fn C.SymCleanup(hProcess voidptr)
 
-fn C.MultiByteToWideChar(codePage u32, dwFlags u32, lpMultiMyteStr charptr, cbMultiByte int, lpWideCharStr &u16, cchWideChar int) int
+fn C.MultiByteToWideChar(codePage u32, dwFlags u32, lpMultiMyteStr &char, cbMultiByte int, lpWideCharStr &u16, cchWideChar int) int
 
 fn C.wcslen(str &u16) int
 
-fn C.WideCharToMultiByte(codePage u32, dwFlags u32, lpWideCharStr &u16, cchWideChar int, lpMultiByteStr charptr, cbMultiByte int, lpDefaultChar charptr, lpUsedDefaultChar &int) int
+fn C.WideCharToMultiByte(codePage u32, dwFlags u32, lpWideCharStr &u16, cchWideChar int, lpMultiByteStr &char, cbMultiByte int, lpDefaultChar &char, lpUsedDefaultChar &int) int
 
 fn C._wstat(path &u16, buffer &C._stat)
 
@@ -260,7 +281,7 @@ fn C._wsystem(command &u16) int
 
 fn C._wgetenv(varname &u16) voidptr
 
-fn C._putenv(envstring charptr) int
+fn C._putenv(envstring &char) int
 
 fn C._waccess(path &u16, mode int) int
 
@@ -280,13 +301,14 @@ fn C._fullpath() int
 
 fn C.GetFullPathName(voidptr, u32, voidptr, voidptr) u32
 
+[trusted]
 fn C.GetCommandLine() voidptr
 
 fn C.LocalFree()
 
 fn C.FindFirstFileW(lpFileName &u16, lpFindFileData voidptr) voidptr
 
-fn C.FindFirstFile(lpFileName byteptr, lpFindFileData voidptr) voidptr
+fn C.FindFirstFile(lpFileName &byte, lpFindFileData voidptr) voidptr
 
 fn C.FindNextFile(hFindFile voidptr, lpFindFileData voidptr) int
 
@@ -301,8 +323,10 @@ fn C.CloseHandle(voidptr) int
 
 fn C.GetExitCodeProcess(hProcess voidptr, lpExitCode &u32)
 
+[trusted]
 fn C.GetTickCount() i64
 
+[trusted]
 fn C.Sleep(dwMilliseconds u32)
 
 fn C.WSAStartup(u16, &voidptr) int
@@ -313,7 +337,7 @@ fn C.closesocket(int) int
 
 fn C.vschannel_init(&C.TlsContext)
 
-fn C.request(&C.TlsContext, int, &u16, byteptr, &byteptr)
+fn C.request(&C.TlsContext, int, &u16, &byte, &&byte)
 
 fn C.vschannel_cleanup(&C.TlsContext)
 
@@ -321,19 +345,19 @@ fn C.URLDownloadToFile(int, &u16, &u16, int, int)
 
 fn C.GetLastError() u32
 
-fn C.CreateDirectory(byteptr, int) bool
+fn C.CreateDirectory(&byte, int) bool
 
 // win crypto
 fn C.BCryptGenRandom(int, voidptr, int, int) int
 
 // win synchronization
-fn C.CreateMutex(int, bool, byteptr) voidptr
+fn C.CreateMutex(int, bool, &byte) voidptr
 
 fn C.WaitForSingleObject(voidptr, int) int
 
 fn C.ReleaseMutex(voidptr) bool
 
-fn C.CreateEvent(int, bool, bool, byteptr) voidptr
+fn C.CreateEvent(int, bool, bool, &byte) voidptr
 
 fn C.SetEvent(voidptr) int
 

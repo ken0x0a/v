@@ -1232,6 +1232,9 @@ pub fn (mut f Fmt) sql_stmt(node ast.SqlStmt) {
 			f.expr(node.where_expr)
 			f.writeln('')
 		}
+		.create {
+			f.writeln('create table $table_name')
+		}
 	}
 	f.writeln('}')
 }
@@ -1928,19 +1931,24 @@ pub fn (mut f Fmt) wrap_infix(start_pos int, start_len int, ignore_paren bool) {
 	for i, c in conditions {
 		cnd := c.trim_space()
 		if f.line_len + cnd.len < fmt.max_len[penalties[i]] {
-			if (i > 0 && i < conditions.len) || (ignore_paren && i == 0 && cnd[3] == `(`) {
+			if (i > 0 && i < conditions.len)
+				|| (ignore_paren && i == 0 && cnd.len > 5 && cnd[3] == `(`) {
 				f.write(' ')
 			}
 			f.write(cnd)
 		} else {
+			is_paren_expr := (cnd[0] == `(` || (cnd.len > 5 && cnd[3] == `(`)) && cnd.ends_with(')')
+			final_len := ((f.indent + 1) * 4) + cnd.len
 			prev_len := f.line_len
 			prev_pos := f.out.len
+			if i == 0 && !is_paren_expr {
+				f.remove_new_line({})
+			}
 			f.writeln('')
 			f.indent++
 			f.write(cnd)
 			f.indent--
-			if f.line_len > fmt.max_len.last() && (cnd[0] == `(` || cnd[3] == `(`)
-				&& cnd.ends_with(')') {
+			if final_len > fmt.max_len.last() && is_paren_expr {
 				f.wrap_infix(prev_pos, prev_len, true)
 			}
 		}
@@ -2063,7 +2071,12 @@ pub fn (mut f Fmt) match_expr(node ast.MatchExpr) {
 			// normal branch
 			f.is_mbranch_expr = true
 			for j, expr in branch.exprs {
-				f.expr(expr)
+				estr := f.node_str(expr)
+				if f.line_len + estr.len + 2 > fmt.max_len[5] {
+					f.remove_new_line({})
+					f.writeln('')
+				}
+				f.write(estr)
 				if j < branch.ecmnts.len && branch.ecmnts[j].len > 0 {
 					f.write(' ')
 					f.comments(branch.ecmnts[j], iembed: true)
@@ -2071,7 +2084,6 @@ pub fn (mut f Fmt) match_expr(node ast.MatchExpr) {
 				if j < branch.exprs.len - 1 {
 					f.write(', ')
 				}
-				f.wrap_long_line(4, false)
 			}
 			f.is_mbranch_expr = false
 		} else {

@@ -24,7 +24,7 @@ fn (mut ws Client) handshake() ? {
 	sb.write_string(seckey)
 	sb.write_string('\r\nSec-WebSocket-Version: 13')
 	for key in ws.header.keys() {
-		val := ws.header.values_str(key).join(',')
+		val := ws.header.custom_values(key).join(',')
 		sb.write_string('\r\n$key:$val')
 	}
 	sb.write_string('\r\n\r\n')
@@ -117,7 +117,7 @@ fn (mut ws Client) read_handshake_str() ?string {
 	mut msg := [1024]byte{}
 	mut buffer := [1]byte{}
 	for total_bytes_read < 1024 {
-		bytes_read := ws.socket_read_ptr(byteptr(&buffer), 1) ?
+		bytes_read := ws.socket_read_ptr(&buffer[0], 1) ?
 		if bytes_read == 0 {
 			return error_with_code('unexpected no response from handshake', 5)
 		}

@@ -12,6 +12,7 @@ pub const (
 // Ref - https://docs.microsoft.com/en-us/windows/desktop/winprog/windows-data-types
 // A handle to an object.
 pub type HANDLE = voidptr
+pub type HMODULE = voidptr
 
 // win: FILETIME
 // https://docs.microsoft.com/en-us/windows/win32/api/minwinbase/ns-minwinbase-filetime
@@ -63,7 +64,7 @@ mut:
 	dw_flags           u32
 	w_show_window      u16
 	cb_reserved2       u16
-	lp_reserved2       byteptr
+	lp_reserved2       &byte
 	h_std_input        voidptr
 	h_std_output       voidptr
 	h_std_error        voidptr
@@ -76,7 +77,7 @@ mut:
 	b_inherit_handle       bool
 }
 
-fn init_os_args_wide(argc int, argv &byteptr) []string {
+fn init_os_args_wide(argc int, argv &&byte) []string {
 	mut args_ := []string{}
 	for i in 0 .. argc {
 		args_ << unsafe { string_from_wide(&u16(argv[i])) }
@@ -257,6 +258,7 @@ pub fn execute(cmd string) Result {
 	}
 	proc_info := ProcessInformation{}
 	start_info := StartupInfo{
+		lp_reserved2: 0
 		lp_reserved: 0
 		lp_desktop: 0
 		lp_title: 0
