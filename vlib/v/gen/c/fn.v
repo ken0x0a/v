@@ -64,7 +64,7 @@ fn (mut g Gen) process_fn_decl(node ast.FnDecl) {
 		// We are using prebuilt modules, we do not need to generate
 		// their functions in main.c.
 		if node.mod != 'main' && node.mod != 'help' && !should_bundle_module && !g.pref.is_test
-			&& node.generic_params.len == 0 {
+			&& node.generic_names.len == 0 {
 			skip = true
 		}
 	}
@@ -86,8 +86,10 @@ fn (mut g Gen) process_fn_decl(node ast.FnDecl) {
 	if skip {
 		g.out.go_back_to(pos)
 	}
-	if node.language != .c {
-		g.writeln('')
+	if !g.pref.skip_unused {
+		if node.language != .c {
+			g.writeln('')
+		}
 	}
 }
 
@@ -125,7 +127,7 @@ fn (mut g Gen) gen_fn_decl(node ast.FnDecl, skip bool) {
 	// if g.fileis('vweb.v') {
 	// println('\ngen_fn_decl() $node.name $node.is_generic $g.cur_generic_type')
 	// }
-	if node.generic_params.len > 0 && g.cur_generic_types.len == 0 { // need the cur_generic_type check to avoid inf. recursion
+	if node.generic_names.len > 0 && g.cur_generic_types.len == 0 { // need the cur_generic_type check to avoid inf. recursion
 		// loop thru each generic type and generate a function
 		for gen_types in g.table.fn_gen_types[node.name] {
 			if g.pref.is_verbose {
@@ -195,7 +197,7 @@ fn (mut g Gen) gen_fn_decl(node ast.FnDecl, skip bool) {
 	// if g.pref.show_cc && it.is_builtin {
 	// println(name)
 	// }
-	// type_name := g.table.Type_to_str(it.return_type)
+	// type_name := g.ast.Type_to_str(it.return_type)
 	// Live functions are protected by a mutex, because otherwise they
 	// can be changed by the live reload thread, *while* they are
 	// running, with unpredictable results (usually just crashing).
@@ -413,9 +415,11 @@ fn (mut g Gen) call_expr(node ast.CallExpr) {
 	defer {
 		g.inside_call = false
 	}
+	gen_keep_alive := node.is_keep_alive && node.return_type != ast.void_type
+		&& g.pref.gc_mode in [.boehm_full, .boehm_incr, .boehm]
 	gen_or := node.or_block.kind != .absent // && !g.is_autofree
 	is_gen_or_and_assign_rhs := gen_or && !g.discard_or_result
-	cur_line := if is_gen_or_and_assign_rhs { // && !g.is_autofree {
+	cur_line := if is_gen_or_and_assign_rhs || gen_keep_alive { // && !g.is_autofree {
 		// `x := foo() or { ...}`
 		// cut everything that has been generated to prepend optional variable creation
 		line := g.go_before_stmt(0)
@@ -425,9 +429,13 @@ fn (mut g Gen) call_expr(node ast.CallExpr) {
 	} else {
 		''
 	}
-	tmp_opt := if gen_or { g.new_tmp_var() } else { '' }
-	if gen_or {
-		styp := g.typ(node.return_type.set_flag(.optional))
+	tmp_opt := if gen_or || gen_keep_alive { g.new_tmp_var() } else { '' }
+	if gen_or || gen_keep_alive {
+		mut ret_typ := node.return_type
+		if gen_or {
+			ret_typ = ret_typ.set_flag(.optional)
+		}
+		styp := g.typ(ret_typ)
 		g.write('$styp $tmp_opt = ')
 	}
 	if node.is_method && !node.is_field {
@@ -458,16 +466,19 @@ fn (mut g Gen) call_expr(node ast.CallExpr) {
 				}
 			}
 		}
+	} else if gen_keep_alive {
+		if node.return_type == ast.void_type {
+			g.write('\n $cur_line')
+		} else {
+			g.write('\n $cur_line $tmp_opt')
+		}
 	}
 }
 
-pub fn (g &Gen) unwrap_generic(typ ast.Type) ast.Type {
+pub fn (mut g Gen) unwrap_generic(typ ast.Type) ast.Type {
 	if typ.has_flag(.generic) {
-		sym := g.table.get_type_symbol(typ)
-		for i, generic_param in g.cur_fn.generic_params {
-			if generic_param.name == sym.name {
-				return g.cur_generic_types[i].derive(typ).clear_flag(.generic)
-			}
+		if t_typ := g.table.resolve_generic_by_names(typ, g.cur_fn.generic_names, g.cur_generic_types) {
+			return t_typ
 		}
 	}
 	return typ
@@ -494,7 +505,7 @@ fn (mut g Gen) method_call(node ast.CallExpr) {
 		g.expr(node.left)
 		dot := if node.left_type.is_ptr() { '->' } else { '.' }
 		mname := c_name(node.name)
-		g.write('${dot}_interface_idx]._method_${mname}(')
+		g.write('${dot}_typ]._method_${mname}(')
 		g.expr(node.left)
 		g.write('${dot}_object')
 		if node.args.len > 0 {
@@ -578,7 +589,7 @@ fn (mut g Gen) method_call(node ast.CallExpr) {
 		g.write('tos3( /* $left_sym.name */ v_typeof_interface_${typ_sym.cname}( (')
 		g.expr(node.left)
 		dot := if node.left_type.is_ptr() { '->' } else { '.' }
-		g.write(')${dot}_interface_idx ))')
+		g.write(')${dot}_typ ))')
 		return
 	}
 	if node.name == 'str' {
@@ -616,7 +627,7 @@ fn (mut g Gen) method_call(node ast.CallExpr) {
 		}
 	} else if left_sym.kind == .map {
 		if node.name == 'keys' {
-			name = 'map_keys_1'
+			name = 'map_keys'
 		}
 	}
 	if g.pref.obfuscate && g.cur_mod.name == 'main' && name.starts_with('main__')
@@ -874,13 +885,30 @@ fn (mut g Gen) fn_call(node ast.CallExpr) {
 			// g.writeln(';')
 			// g.write(cur_line + ' /* <== af cur line*/')
 			// }
+			mut tmp_cnt_save := -1
 			g.write('${g.get_ternary_name(name)}(')
 			if g.is_json_fn {
 				g.write(json_obj)
 			} else {
-				g.call_args(node)
+				if node.is_keep_alive && g.pref.gc_mode in [.boehm_full, .boehm_incr, .boehm] {
+					cur_line := g.go_before_stmt(0)
+					tmp_cnt_save = g.keep_alive_call_pregen(node)
+					g.write(cur_line)
+					for i in 0 .. node.args.len {
+						if i > 0 {
+							g.write(', ')
+						}
+						g.write('__tmp_arg_${tmp_cnt_save + i}')
+					}
+				} else {
+					g.call_args(node)
+				}
 			}
 			g.write(')')
+			if tmp_cnt_save >= 0 {
+				g.writeln(';')
+				g.keep_alive_call_postgen(node, tmp_cnt_save)
+			}
 		}
 	}
 	g.is_c_call = false
@@ -1099,6 +1127,36 @@ fn (mut g Gen) call_args(node ast.CallExpr) {
 			} else {
 				g.write('__new_array_with_default(0, 0, sizeof($elem_type), 0)')
 			}
+		}
+	}
+}
+
+// similar to `autofree_call_pregen()` but only to to handle [keep_args_alive] for C functions
+fn (mut g Gen) keep_alive_call_pregen(node ast.CallExpr) int {
+	g.empty_line = true
+	g.writeln('// keep_alive_call_pregen()')
+	// reserve the next tmp_vars for arguments
+	tmp_cnt_save := g.tmp_count + 1
+	g.tmp_count += node.args.len
+	for i, arg in node.args {
+		// save all arguments in temp vars (not only pointers) to make sure the
+		// evaluation order is preserved
+		expected_type := node.expected_arg_types[i]
+		typ := g.table.get_type_symbol(expected_type).cname
+		g.write('$typ __tmp_arg_${tmp_cnt_save + i} = ')
+		// g.expr(arg.expr)
+		g.ref_or_deref_arg(arg, expected_type, node.language)
+		g.writeln(';')
+	}
+	g.empty_line = false
+	return tmp_cnt_save
+}
+
+fn (mut g Gen) keep_alive_call_postgen(node ast.CallExpr, tmp_cnt_save int) {
+	g.writeln('// keep_alive_call_postgen()')
+	for i, expected_type in node.expected_arg_types {
+		if expected_type.is_ptr() || expected_type.is_pointer() {
+			g.writeln('GC_reachable_here(__tmp_arg_${tmp_cnt_save + i});')
 		}
 	}
 }
