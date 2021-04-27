@@ -27,7 +27,7 @@
 
 - Simplicity: the language can be learned in less than an hour
 - Fast compilation: ≈110k loc/s with a Clang backend,
-    ≈1 million loc/s with x64 and tcc backends *(Intel i5-7500, SSD, no optimization)* ([demo video](https://www.youtube.com/watch?v=pvP6wmcl_Sc))
+    ≈1 million loc/s with native and tcc backends *(Intel i5-7500, SSD, no optimization)* ([demo video](https://www.youtube.com/watch?v=pvP6wmcl_Sc))
 - Easy to develop: V compiles itself in less than a second
 - Performance: as fast as C (V's main backend compiles to human readable C)
 - Safety: no null, no globals, no undefined behavior, immutability by default
@@ -52,7 +52,7 @@ There still may be minor syntax changes before the 1.0 release, but they will be
 automatically via `vfmt`, as has been done in the past.
 
 The V core APIs (primarily the `os` module) will still have minor changes until
-they are stabilized in 2020. Of course the APIs will grow after that, but without breaking
+they are stabilized in V 1.0. Of course the APIs will grow after that, but without breaking
 existing code.
 
 Unlike many other languages, V is not going to be always changing, with new features
@@ -173,7 +173,7 @@ cd examples
 v hello_world.v && ./hello_world    # or simply
 v run hello_world.v                 # this builds the program and runs it right away
 
-v word_counter.v && ./word_counter cinderella.txt
+v run word_counter/word_counter.v word_counter/cinderella.txt
 v run news_fetcher.v
 v run tetris/tetris.v
 ```

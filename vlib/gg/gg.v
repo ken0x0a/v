@@ -189,7 +189,9 @@ fn gg_init_sokol_window(user_data voidptr) {
 		}
 	}
 	//
-	mut pipdesc := C.sg_pipeline_desc{}
+	mut pipdesc := C.sg_pipeline_desc{
+		label: c'alpha_image'
+	}
 	unsafe { C.memset(&pipdesc, 0, sizeof(pipdesc)) }
 
 	color_state := C.sg_color_state{
@@ -336,8 +338,8 @@ pub fn new_context(cfg Config) &Context {
 		event_userdata_cb: gg_event_fn
 		fail_userdata_cb: gg_fail_fn
 		cleanup_userdata_cb: gg_cleanup_fn
-		window_title: cfg.window_title.str
-		html5_canvas_name: cfg.window_title.str
+		window_title: &char(cfg.window_title.str)
+		html5_canvas_name: &char(cfg.window_title.str)
 		width: cfg.width
 		height: cfg.height
 		sample_count: cfg.sample_count
@@ -560,17 +562,19 @@ pub fn (ctx &Context) draw_line(x f32, y f32, x2 f32, y2 f32, c gx.Color) {
 	if c.a != 255 {
 		sgl.load_pipeline(ctx.timage_pip)
 	}
-	if ctx.scale > 1 {
-		// Make the line more clear on hi dpi screens: draw a rectangle
-		mut width := mu.abs(x2 - x)
-		mut height := mu.abs(y2 - y)
-		if width == 0 {
-			width = 1
-		} else if height == 0 {
-			height = 1
+	$if !android {
+		if ctx.scale > 1 {
+			// Make the line more clear on hi dpi screens: draw a rectangle
+			mut width := mu.abs(x2 - x)
+			mut height := mu.abs(y2 - y)
+			if width == 0 {
+				width = 1
+			} else if height == 0 {
+				height = 1
+			}
+			ctx.draw_rect(x, y, width, height, c)
+			return
 		}
-		ctx.draw_rect(x, y, width, height, c)
-		return
 	}
 	sgl.c4b(c.r, c.g, c.b, c.a)
 	sgl.begin_line_strip()

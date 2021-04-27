@@ -253,8 +253,15 @@ fn (mut p Parser) comp_for() ast.CompFor {
 			pos: var_pos
 		})
 		kind = .fields
+	} else if for_val == 'attributes' {
+		p.scope.register(ast.Var{
+			name: val_var
+			typ: p.table.find_type_idx('StructAttribute')
+			pos: var_pos
+		})
+		kind = .attributes
 	} else {
-		p.error_with_pos('unknown kind `$for_val`, available are: `methods` or `fields`',
+		p.error_with_pos('unknown kind `$for_val`, available are: `methods`, `fields` or `attributes`',
 			p.prev_tok.position())
 		return ast.CompFor{}
 	}
@@ -279,12 +286,15 @@ fn (mut p Parser) at() ast.AtExpr {
 		'@METHOD' { token.AtKind.method_name }
 		'@MOD' { token.AtKind.mod_name }
 		'@STRUCT' { token.AtKind.struct_name }
-		'@VEXE' { token.AtKind.vexe_path }
 		'@FILE' { token.AtKind.file_path }
 		'@LINE' { token.AtKind.line_nr }
 		'@COLUMN' { token.AtKind.column_nr }
 		'@VHASH' { token.AtKind.vhash }
 		'@VMOD_FILE' { token.AtKind.vmod_file }
+		'@VEXE' { token.AtKind.vexe_path }
+		'@VEXEROOT' { token.AtKind.vexeroot_path }
+		'@VMODROOT' { token.AtKind.vmodroot_path }
+		'@VROOT' { token.AtKind.vroot_path } // deprecated, use @VEXEROOT or @VMODROOT
 		else { token.AtKind.unknown }
 	}
 	p.next()

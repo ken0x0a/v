@@ -44,7 +44,7 @@ fn main() {
 		tcc_path = '/usr/local/bin/tcc'
 	}
 	diff2 := measure('$vdir/vprod -cc $tcc_path -o v2 $vdir/cmd/v', 'v2')
-	diff3 := 0 // measure('$vdir/vprod -x64 $vdir/cmd/tools/1mil.v', 'x64 1mil')
+	diff3 := 0 // measure('$vdir/vprod -native $vdir/cmd/tools/1mil.v', 'native 1mil')
 	diff4 := measure('$vdir/vprod -cc clang $vdir/examples/hello_world.v', 'hello.v')
 	vc_size := os.file_size('v.c') / 1000
 	// scan/parse/check/cgen
@@ -54,11 +54,12 @@ fn main() {
 	date := time.unix(commit_date.int())
 	mut out := os.create('table.html') ?
 	// Place the new row on top
+	html_message := message.replace_each(['<', '&lt;', '>', '&gt;'])
 	table =
 		'<tr>
 		<td>$date.format()</td>
 		<td><a target=_blank href="https://github.com/vlang/v/commit/$commit">$commit</a></td>
-		<td>$message</td>
+		<td>$html_message</td>
 		<td>${diff1}ms</td>
 		<td>${diff2}ms</td>
 		<td>${diff3}ms</td>

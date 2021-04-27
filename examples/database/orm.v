@@ -1,6 +1,8 @@
 import sqlite
 import mysql
+import pg
 
+[table: 'modules']
 struct Module {
 	id           int    [primary; sql: serial]
 	name         string
@@ -10,15 +12,14 @@ struct Module {
 
 struct User {
 	id             int    [primary; sql: serial]
-	age            int
-	name           string [nonull]
-	is_customer    bool
+	age            int    [unique: 'user']
+	name           string [sql: 'username'; unique]
+	is_customer    bool   [sql: 'abc'; unique: 'user']
 	skipped_string string [skip]
 }
 
 fn main() {
 	db := sqlite.connect(':memory:') or { panic(err) }
-	db.exec('drop table if exists User')
 	sql db {
 		create table Module
 	}
@@ -40,9 +41,14 @@ fn main() {
 		select from Module where id == 1
 	}
 
+	sql db {
+		drop table Module
+	}
+
 	eprintln(modul)
 
-	mysql()
+	// mysql()
+	psql()
 }
 
 fn mysql() {
@@ -77,4 +83,28 @@ fn mysql() {
 		select from Module where id == 1
 	}
 	eprintln(m)
+}
+
+fn psql() {
+	mut db := pg.connect(host: 'localhost', user: 'test', password: 'abc', dbname: 'test') or {
+		panic(err)
+	}
+
+	mod := Module{
+		name: 'test'
+		nr_downloads: 10
+		creator: User{
+			age: 21
+			name: 'VUser'
+			is_customer: true
+		}
+	}
+
+	sql db {
+		create table Module
+	}
+
+	sql db {
+		insert mod into Module
+	}
 }

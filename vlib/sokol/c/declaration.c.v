@@ -4,16 +4,22 @@ pub const (
 	used_import = 1
 )
 
-#flag -I @VROOT/thirdparty/sokol
-#flag -I @VROOT/thirdparty/sokol/util
+#flag -I @VEXEROOT/thirdparty/sokol
+#flag -I @VEXEROOT/thirdparty/sokol/util
 #flag freebsd -I /usr/local/include
 #flag darwin -fobjc-arc
 #flag linux -lX11 -lGL -lXcursor -lXi
 #flag freebsd -L/usr/local/lib -lX11 -lGL -lXcursor -lXi
 #flag windows -lgdi32
 // METAL
-#flag darwin -DSOKOL_METAL
-#flag darwin -framework Metal -framework Cocoa -framework MetalKit -framework QuartzCore
+$if macos {
+	#flag -DSOKOL_METAL
+	#flag -framework Metal -framework Cocoa -framework MetalKit -framework QuartzCore
+}
+$if ios {
+	#flag -DSOKOL_METAL
+	#flag -framework Foundation -framework Metal -framework MetalKit -framework UIKit
+}
 // OPENGL
 #flag linux -DSOKOL_GLCORE33
 #flag freebsd -DSOKOL_GLCORE33

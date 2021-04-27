@@ -11,32 +11,30 @@ import v.builder
 
 const (
 	external_tools                      = [
-		'fmt',
-		'up',
-		'vet',
-		'self',
-		'tracev',
-		'symlink',
 		'bin2v',
+		'bug',
+		'build-examples',
+		'build-tools',
+		'build-vbinaries',
+		'check-md',
+		'complete',
+		'doc',
+		'doctor',
+		'fmt',
+		'repl',
+		'self',
+		'setup-freetype',
+		'symlink',
 		'test',
 		'test-all', /* runs most of the tests and other checking tools, that will be run by the CI */
+		'test-cleancode',
 		'test-fmt',
 		'test-parser',
 		'test-self',
-		'test-fixed', /* deprecated by test-self */
-		'test-compiler', /* deprecated by test-self */
-		'test-compiler-full', /* deprecated by test-self */
-		'test-cleancode',
-		'check-md',
-		'repl',
-		'complete',
-		'build-tools',
-		'build-examples',
-		'build-vbinaries',
-		'setup-freetype',
+		'tracev',
+		'up',
+		'vet',
 		'wipe-cache',
-		'doc',
-		'doctor',
 	]
 	list_of_flags_that_allow_duplicates = ['cc', 'd', 'define', 'cf', 'cflags']
 )
@@ -58,7 +56,7 @@ fn main() {
 	if args.len == 0 || args[0] in ['-', 'repl'] {
 		// Running `./v` without args launches repl
 		if args.len == 0 {
-			if is_atty(0) != 0 {
+			if os.is_atty(0) != 0 {
 				println('Welcome to the V REPL (for help with V itself, type `exit`, then run `v help`).')
 			} else {
 				mut args_and_flags := util.join_env_vflags_and_os_args()[1..].clone()
@@ -82,18 +80,6 @@ fn main() {
 	}
 	if prefs.use_cache && os.user_os() == 'windows' {
 		eprintln('-usecache is currently disabled on windows')
-		exit(1)
-	}
-	if command in ['test-fixed', 'test-compiler-full'] {
-		eprintln('Please use `v test-self` instead.')
-		exit(1)
-	}
-	if command == 'test-compiler' {
-		eprintln('Please use either `v test-all`, `v test-self`, `v build-examples`, `v build-tools` or `v build-vbinaries` instead.')
-		exit(1)
-	}
-	if command == 'test-vet' {
-		eprintln('Please use `v test-cleancode` instead.')
 		exit(1)
 	}
 	// Start calling the correct functions/external tools

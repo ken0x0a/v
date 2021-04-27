@@ -80,7 +80,7 @@ fn main() {
 		verror(err.msg)
 		return
 	}
-	if is_atty(0) == 0 && files.len == 0 {
+	if os.is_atty(0) == 0 && files.len == 0 {
 		foptions.format_pipe()
 		exit(0)
 	}
@@ -210,7 +210,10 @@ fn (foptions &FormatOptions) post_process_file(file string, formatted_file_path 
 		if foptions.is_verbose {
 			eprintln('Using diff command: $diff_cmd')
 		}
-		println(util.color_compare_files(diff_cmd, file, formatted_file_path))
+		diff := util.color_compare_files(diff_cmd, file, formatted_file_path)
+		if diff.len > 0 {
+			println(diff)
+		}
 		return
 	}
 	if foptions.is_verify {

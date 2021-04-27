@@ -8,6 +8,12 @@ import v.vet
 import v.token
 
 pub fn (mut p Parser) expr(precedence int) ast.Expr {
+	return p.check_expr(precedence) or {
+		p.error_with_pos('invalid expression: unexpected $p.tok', p.tok.position())
+	}
+}
+
+pub fn (mut p Parser) check_expr(precedence int) ?ast.Expr {
 	$if trace_parser ? {
 		tok_pos := p.tok.position()
 		eprintln('parsing file: ${p.file_name:-30} | tok.kind: ${p.tok.kind:-10} | tok.lit: ${p.tok.lit:-10} | tok_pos: ${tok_pos.str():-45} | expr($precedence)')
@@ -18,6 +24,11 @@ pub fn (mut p Parser) expr(precedence int) ast.Expr {
 	p.is_stmt_ident = false
 	if !p.pref.is_fmt {
 		p.eat_comments({})
+	}
+	inside_array_lit := p.inside_array_lit
+	p.inside_array_lit = false
+	defer {
+		p.inside_array_lit = inside_array_lit
 	}
 	// Prefix
 	match p.tok.kind {
@@ -92,12 +103,9 @@ pub fn (mut p Parser) expr(precedence int) ast.Expr {
 			}
 		}
 		.key_go {
-			stmt := p.stmt(false)
-			go_stmt := stmt as ast.GoStmt
-			node = ast.GoExpr{
-				go_stmt: go_stmt
-				pos: go_stmt.pos
-			}
+			mut go_expr := p.go_expr()
+			go_expr.is_expr = true
+			node = go_expr
 		}
 		.key_true, .key_false {
 			node = ast.BoolLiteral{
@@ -321,8 +329,15 @@ pub fn (mut p Parser) expr(precedence int) ast.Expr {
 		else {
 			if p.tok.kind != .eof && !(p.tok.kind == .rsbr && p.inside_asm) {
 				// eof should be handled where it happens
-				return p.error_with_pos('invalid expression: unexpected $p.tok', p.tok.position())
+				return none
+				// return p.error_with_pos('invalid expression: unexpected $p.tok', p.tok.position())
 			}
+		}
+	}
+	if inside_array_lit {
+		if p.tok.kind in [.minus, .mul, .amp, .arrow] && p.tok.pos + 1 == p.peek_tok.pos
+			&& p.prev_tok.pos + p.prev_tok.len + 1 != p.peek_tok.pos {
+			return node
 		}
 	}
 	return p.expr_with_left(node, precedence, is_stmt_ident)
@@ -404,7 +419,7 @@ pub fn (mut p Parser) expr_with_left(left ast.Expr, precedence int, is_stmt_iden
 		} else if p.tok.kind in [.inc, .dec] || (p.tok.kind == .question && p.inside_ct_if_expr) {
 			// Postfix
 			// detect `f(x++)`, `a[x++]`
-			if p.peek_tok.kind in [.rpar, .rsbr] && p.mod !in ['builtin', 'regex', 'strconv'] { // temp
+			if p.peek_tok.kind in [.rpar, .rsbr] {
 				p.warn_with_pos('`$p.tok.kind` operator can only be used as a statement',
 					p.peek_tok.position())
 			}
@@ -463,6 +478,7 @@ fn (mut p Parser) infix_expr(left ast.Expr) ast.Expr {
 				typ: ast.error_type
 				pos: p.tok.position()
 				is_used: true
+				is_stack_obj: true
 			})
 			or_kind = .block
 			or_stmts = p.parse_block_no_scope(false)
@@ -487,6 +503,25 @@ fn (mut p Parser) infix_expr(left ast.Expr) ast.Expr {
 			kind: or_kind
 			pos: or_pos
 		}
+	}
+}
+
+fn (mut p Parser) go_expr() ast.GoExpr {
+	p.next()
+	spos := p.tok.position()
+	expr := p.expr(0)
+	call_expr := if expr is ast.CallExpr {
+		expr
+	} else {
+		p.error_with_pos('expression in `go` must be a function call', expr.position())
+		ast.CallExpr{
+			scope: p.scope
+		}
+	}
+	pos := spos.extend(p.prev_tok.position())
+	return ast.GoExpr{
+		call_expr: call_expr
+		pos: pos
 	}
 }
 
@@ -526,6 +561,7 @@ fn (mut p Parser) prefix_expr() ast.PrefixExpr {
 				typ: ast.error_type
 				pos: p.tok.position()
 				is_used: true
+				is_stack_obj: true
 			})
 			or_kind = .block
 			or_stmts = p.parse_block_no_scope(false)

@@ -40,7 +40,7 @@ import time
 import gg.m4
 
 // GLSL Include and functions
-#flag -I @VROOT/.
+#flag -I @VMODROOT/.
 #include "cube_glsl.h" #Please use sokol-shdc to generate the necessary cube_glsl.h file from cube_glsl.glsl (see the instructions at the top of this file)
 
 fn C.cube_shader_desc(gfx.Backend) &C.sg_shader_desc
@@ -293,7 +293,7 @@ fn init_cube_glsl(mut app App) {
 		Vertex_t{ 1.0,  1.0, -1.0, c,  0, d},
 	]
 
-	mut vert_buffer_desc := C.sg_buffer_desc{}
+	mut vert_buffer_desc := C.sg_buffer_desc{label: c'cube-vertices'}
 	unsafe { C.memset(&vert_buffer_desc, 0, sizeof(vert_buffer_desc)) }
 
 	vert_buffer_desc.size = size_t(vertices.len * int(sizeof(Vertex_t)))
@@ -304,7 +304,6 @@ fn init_cube_glsl(mut app App) {
 
 	vert_buffer_desc.@type = .vertexbuffer
 	// vert_buffer_desc.usage   = .immutable
-	vert_buffer_desc.label = 'cube-vertices'.str
 	vbuf := gfx.make_buffer(&vert_buffer_desc)
 
 	/* create an index buffer for the cube */
@@ -317,7 +316,7 @@ fn init_cube_glsl(mut app App) {
 		22, 21, 20,    23, 22, 20
 	]
 
-	mut index_buffer_desc := C.sg_buffer_desc{}
+	mut index_buffer_desc := C.sg_buffer_desc{label: c'cube-indices'}
 	unsafe { C.memset(&index_buffer_desc, 0, sizeof(index_buffer_desc)) }
 
 	index_buffer_desc.size = size_t(indices.len * int(sizeof(u16)))
@@ -327,7 +326,6 @@ fn init_cube_glsl(mut app App) {
 	}
 
 	index_buffer_desc.@type = .indexbuffer
-	index_buffer_desc.label = 'cube-indices'.str
 	ibuf := gfx.make_buffer(&index_buffer_desc)
 
 	// create shader
@@ -400,7 +398,7 @@ fn draw_cube_glsl(app App) {
 		0 /* padding 4 Bytes == 1 f32 */,
 	]!
 	fs_uniforms_range := C.sg_range{
-		ptr: &text_res
+		ptr: unsafe { &text_res }
 		size: size_t(4 * 4)
 	}
 	gfx.apply_uniforms(C.SG_SHADERSTAGE_FS, C.SLOT_fs_params, &fs_uniforms_range)

@@ -5,9 +5,9 @@ fn C.setpgid(pid int, pgid int) int
 fn (mut p Process) unix_spawn_process() int {
 	mut pipeset := [6]int{}
 	if p.use_stdio_ctl {
-		C.pipe(&pipeset[0]) // pipe read end 0 <- 1 pipe write end
-		C.pipe(&pipeset[2]) // pipe read end 2 <- 3 pipe write end
-		C.pipe(&pipeset[4]) // pipe read end 4 <- 5 pipe write end
+		_ = C.pipe(&pipeset[0]) // pipe read end 0 <- 1 pipe write end
+		_ = C.pipe(&pipeset[2]) // pipe read end 2 <- 3 pipe write end
+		_ = C.pipe(&pipeset[4]) // pipe read end 4 <- 5 pipe write end
 	}
 	pid := fork()
 	if pid != 0 {

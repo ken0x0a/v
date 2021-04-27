@@ -96,7 +96,7 @@ fn (mut p Parser) struct_decl() ast.StructDecl {
 	mut is_field_mut := false
 	mut is_field_pub := false
 	mut is_field_global := false
-	mut last_line := -1
+	mut last_line := p.prev_tok.position().line_nr + 1
 	mut end_comments := []ast.Comment{}
 	if !no_body {
 		p.check(.lcbr)
@@ -178,7 +178,7 @@ fn (mut p Parser) struct_decl() ast.StructDecl {
 			field_start_pos := p.tok.position()
 			is_embed := ((p.tok.lit.len > 1 && p.tok.lit[0].is_capital())
 				|| p.peek_tok.kind == .dot) && language == .v && p.peek_tok.kind != .key_fn
-			is_on_top := ast_fields.len == 0 && !(is_field_mut || is_field_mut || is_field_global)
+			is_on_top := ast_fields.len == 0 && !(is_field_mut || is_field_global)
 			mut field_name := ''
 			mut typ := ast.Type(0)
 			mut type_pos := token.Position{}
@@ -299,6 +299,7 @@ fn (mut p Parser) struct_decl() ast.StructDecl {
 			is_typedef: attrs.contains('typedef')
 			is_union: is_union
 			is_heap: attrs.contains('heap')
+			is_generic: generic_types.len > 0
 			generic_types: generic_types
 			attrs: attrs
 		}
@@ -332,7 +333,7 @@ fn (mut p Parser) struct_decl() ast.StructDecl {
 		is_union: is_union
 		attrs: attrs
 		end_comments: end_comments
-		gen_types: generic_types
+		generic_types: generic_types
 		embeds: embeds
 	}
 }
@@ -439,7 +440,19 @@ fn (mut p Parser) interface_decl() ast.InterfaceDecl {
 		p.next()
 	}
 	p.next() // `interface`
+	language := if p.tok.lit == 'C' && p.peek_tok.kind == .dot {
+		ast.Language.c
+	} else if p.tok.lit == 'JS' && p.peek_tok.kind == .dot {
+		ast.Language.js
+	} else {
+		ast.Language.v
+	}
+	if language != .v {
+		p.next() // C || JS
+		p.next() // .
+	}
 	name_pos := p.tok.position()
+	p.check_for_impure_v(language, name_pos)
 	interface_name := p.prepend_mod(p.check_name()).clone()
 	// println('interface decl $interface_name')
 	p.check(.lcbr)
@@ -493,7 +506,7 @@ fn (mut p Parser) interface_decl() ast.InterfaceDecl {
 				p.error_with_pos('duplicate method `$name`', method_start_pos)
 				return ast.InterfaceDecl{}
 			}
-			if util.contains_capital(name) {
+			if language == .v && util.contains_capital(name) {
 				p.error('interface methods cannot contain uppercase letters, use snake_case instead')
 				return ast.InterfaceDecl{}
 			}
@@ -574,6 +587,7 @@ fn (mut p Parser) interface_decl() ast.InterfaceDecl {
 	pos = pos.extend_with_last_line(p.prev_tok.position(), p.prev_tok.line_nr)
 	return ast.InterfaceDecl{
 		name: interface_name
+		language: language
 		fields: fields
 		methods: methods
 		is_pub: is_pub

@@ -21,11 +21,21 @@ fn C.open(&char, int, ...int) int
 
 fn C.fdopen(fd int, mode &char) &C.FILE
 
+fn C.ferror(stream &C.FILE) int
+
+fn C.feof(stream &C.FILE) int
+
 fn C.CopyFile(&u16, &u16, bool) int
 
 // fn C.lstat(charptr, voidptr) u64
 
 fn C._wstat64(&char, voidptr) u64
+
+fn C.chown(&char, int, int) int
+
+fn C.ftruncate(voidptr, u64) int
+
+fn C._chsize_s(voidptr, u64) int
 
 // fn C.proc_pidpath(int, byteptr, int) int
 struct C.stat {
@@ -101,27 +111,72 @@ pub fn read_file(path string) ?string {
 	unsafe {
 		mut str := malloc(fsize + 1)
 		nelements := int(C.fread(str, fsize, 1, fp))
-		if nelements == 0 && fsize > 0 {
+		is_eof := int(C.feof(fp))
+		is_error := int(C.ferror(fp))
+		if is_eof == 0 && is_error != 0 {
 			free(str)
 			return error('fread failed')
 		}
 		str[fsize] = 0
+		if nelements == 0 {
+			// It is highly likely that the file was a virtual file from
+			// /sys or /proc, with information generated on the fly, so
+			// fsize was not reliably reported. Using vstring() here is
+			// slower (it calls strlen internally), but will return more
+			// consistent results.
+			// For example reading from /sys/class/sound/card0/id produces
+			// a `PCH\n` string, but fsize is 4096, and otherwise you would
+			// get a V string with .len = 4096 and .str = "PCH\n\\000".
+			return str.vstring()
+		}
 		return str.vstring_with_len(fsize)
 	}
 }
 
 // ***************************** OS ops ************************
+//
+// truncate changes the size of the file located in `path` to `len`.
+// Note that changing symbolic links on Windows only works as admin.
+pub fn truncate(path string, len u64) ? {
+	fp := C.open(&char(path.str), o_wronly | o_trunc)
+	defer {
+		C.close(fp)
+	}
+	if fp < 0 {
+		return error_with_code(posix_get_error_msg(C.errno), C.errno)
+	}
+	$if windows {
+		if C._chsize_s(fp, len) != 0 {
+			return error_with_code(posix_get_error_msg(C.errno), C.errno)
+		}
+	} $else {
+		if C.ftruncate(fp, len) != 0 {
+			return error_with_code(posix_get_error_msg(C.errno), C.errno)
+		}
+	}
+}
+
 // file_size returns the size of the file located in `path`.
+// If an error occurs it returns 0.
+// Note that use of this on symbolic links on Windows returns always 0.
 pub fn file_size(path string) u64 {
 	mut s := C.stat{}
 	unsafe {
 		$if x64 {
 			$if windows {
 				mut swin := C.__stat64{}
-				C._wstat64(&char(path.to_wide()), voidptr(&swin))
+				if C._wstat64(&char(path.to_wide()), voidptr(&swin)) != 0 {
+					eprintln('os.file_size() Cannot determine file-size: ' +
+						posix_get_error_msg(C.errno))
+					return 0
+				}
 				return swin.st_size
 			} $else {
-				C.stat(&char(path.str), &s)
+				if C.stat(&char(path.str), &s) != 0 {
+					eprintln('os.file_size() Cannot determine file-size: ' +
+						posix_get_error_msg(C.errno))
+					return 0
+				}
 				return u64(s.st_size)
 			}
 		}
@@ -130,10 +185,18 @@ pub fn file_size(path string) u64 {
 				println('Using os.file_size() on 32bit systems may not work on big files.')
 			}
 			$if windows {
-				C._wstat(path.to_wide(), voidptr(&s))
+				if C._wstat(path.to_wide(), voidptr(&s)) != 0 {
+					eprintln('os.file_size() Cannot determine file-size: ' +
+						posix_get_error_msg(C.errno))
+					return 0
+				}
 				return u64(s.st_size)
 			} $else {
-				C.stat(&char(path.str), &s)
+				if C.stat(&char(path.str), &s) != 0 {
+					eprintln('os.file_size() Cannot determine file-size: ' +
+						posix_get_error_msg(C.errno))
+					return 0
+				}
 				return u64(s.st_size)
 			}
 		}
@@ -182,16 +245,18 @@ pub fn cp(src string, dst string) ? {
 			return error_with_code('cp (permission): failed to write to $dst (fp_to: $fp_to)',
 				int(fp_to))
 		}
+		// TODO use defer{} to close files in case of error or return.
+		// Currently there is a C-Error when building.
 		mut buf := [1024]byte{}
 		mut count := 0
 		for {
-			// FIXME: use sizeof, bug: 'os__buf' undeclared
-			// count = C.read(fp_from, buf, sizeof(buf))
-			count = C.read(fp_from, &buf[0], 1024)
+			count = C.read(fp_from, &buf[0], sizeof(buf))
 			if count == 0 {
 				break
 			}
 			if C.write(fp_to, &buf[0], count) < 0 {
+				C.close(fp_to)
+				C.close(fp_from)
 				return error_with_code('cp: failed to write to $dst', int(-1))
 			}
 		}
@@ -200,6 +265,8 @@ pub fn cp(src string, dst string) ? {
 			C.stat(&char(src.str), &from_attr)
 		}
 		if C.chmod(&char(dst.str), from_attr.st_mode) < 0 {
+			C.close(fp_to)
+			C.close(fp_from)
 			return error_with_code('failed to set permissions for $dst', int(-1))
 		}
 		C.close(fp_to)
@@ -676,7 +743,7 @@ pub fn chdir(path string) {
 	$if windows {
 		C._wchdir(path.to_wide())
 	} $else {
-		C.chdir(&char(path.str))
+		_ = C.chdir(&char(path.str))
 	}
 }
 
@@ -810,7 +877,20 @@ pub fn flush() {
 // chmod change file access attributes of `path` to `mode`.
 // Octals like `0o600` can be used.
 pub fn chmod(path string, mode int) {
-	C.chmod(&char(path.str), mode)
+	if C.chmod(&char(path.str), mode) != 0 {
+		panic('chmod failed: ' + posix_get_error_msg(C.errno))
+	}
+}
+
+// chown changes the owner and group attributes of `path` to `owner` and `group`.
+pub fn chown(path string, owner int, group int) ? {
+	$if windows {
+		return error('os.chown() not implemented for Windows')
+	} $else {
+		if C.chown(&char(path.str), owner, group) != 0 {
+			return error_with_code(posix_get_error_msg(C.errno), C.errno)
+		}
+	}
 }
 
 // open_append opens `path` file for appending.

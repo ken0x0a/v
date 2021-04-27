@@ -37,10 +37,7 @@ fn main() {
 	vweb.run_app<App>(mut app, http_port)
 }
 
-pub fn (mut app App) init() {
-}
-
-pub fn (mut app App) init_once() {
+pub fn (mut app App) init_server() {
 	eprintln('>> webserver: started on http://127.0.0.1:$app.port/ , with maximum runtime of $app.timeout milliseconds.')
 }
 
@@ -83,6 +80,12 @@ pub fn (mut app App) json_echo() vweb.Result {
 	// eprintln('>>>>> received http request at /json_echo is: $app.req')
 	app.set_content_type(app.req.header.get(.content_type) or { '' })
 	return app.ok(app.req.data)
+}
+
+['/form_echo'; post]
+pub fn (mut app App) form_echo() vweb.Result {
+	app.set_content_type(app.req.header.get(.content_type) or { '' })
+	return app.ok(app.form['foo'])
 }
 
 // Make sure [post] works without the path

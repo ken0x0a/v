@@ -79,7 +79,7 @@ mut:
 /******************************************************************************
 * GLSL Include and functions
 ******************************************************************************/
-#flag -I @VROOT/.
+#flag -I @VMODROOT/.
 #include "rt_glsl_instancing.h" #Please use sokol-shdc to generate the necessary rt_glsl_march.h file from rt_glsl_march.glsl (see the instructions at the top of this file)
 fn C.instancing_shader_desc(gfx.Backend) &C.sg_shader_desc
 
@@ -189,7 +189,7 @@ fn init_cube_glsl_i(mut app App) {
 		Vertex_t{ 1.0,  1.0, -1.0, c,  0, d},
 	]
 
-	mut vert_buffer_desc := C.sg_buffer_desc{}
+	mut vert_buffer_desc := C.sg_buffer_desc{label: c'cube-vertices'}
 	unsafe {C.memset(&vert_buffer_desc, 0, sizeof(vert_buffer_desc))}
 	vert_buffer_desc.size = size_t(vertices.len * int(sizeof(Vertex_t)))
 	vert_buffer_desc.data = C.sg_range{
@@ -197,17 +197,15 @@ fn init_cube_glsl_i(mut app App) {
 		size: size_t(vertices.len * int(sizeof(Vertex_t)))
 	}
 	vert_buffer_desc.@type   = .vertexbuffer
-	vert_buffer_desc.label   = "cube-vertices".str
 	vbuf := gfx.make_buffer(&vert_buffer_desc)
 
 	/* create an instance buffer for the cube */
-	mut inst_buffer_desc := C.sg_buffer_desc{}
+	mut inst_buffer_desc := C.sg_buffer_desc{label: c'instance-data'}
 	unsafe {C.memset(&inst_buffer_desc, 0, sizeof(inst_buffer_desc))}
 
 	inst_buffer_desc.size = size_t(num_inst * int(sizeof(m4.Vec4)))
 	inst_buffer_desc.@type   = .vertexbuffer
 	inst_buffer_desc.usage   = .stream
-	inst_buffer_desc.label   = "instance-data".str
 	inst_buf := gfx.make_buffer(&inst_buffer_desc)
 
 
@@ -221,7 +219,7 @@ fn init_cube_glsl_i(mut app App) {
 		22, 21, 20,    23, 22, 20
 	]
 
-	mut index_buffer_desc := C.sg_buffer_desc{}
+	mut index_buffer_desc := C.sg_buffer_desc{label: c'cube-indices'}
 	unsafe {C.memset(&index_buffer_desc, 0, sizeof(index_buffer_desc))}
 	index_buffer_desc.size    = size_t(indices.len * int(sizeof(u16)))
 	index_buffer_desc.data = C.sg_range{
@@ -229,7 +227,6 @@ fn init_cube_glsl_i(mut app App) {
 		size: size_t(indices.len * int(sizeof(u16)))
 	}
 	index_buffer_desc.@type   = .indexbuffer
-	index_buffer_desc.label   = "cube-indices".str
 	ibuf := gfx.make_buffer(&index_buffer_desc)
 
 	/* create shader */
@@ -331,7 +328,7 @@ fn draw_cube_glsl_i(mut app App){
 		app.inst_pos[index] = m4.Vec4{e:[f32((x - cx - app.camera_x) * cube_size),y ,f32( (z - cz - app.camera_z) * cube_size),spare_param]!}
 	}
 	range := C.sg_range{
-		ptr: &app.inst_pos
+		ptr: unsafe { &app.inst_pos }
 		size: size_t(num_inst * int(sizeof(m4.Vec4)))
 	}
 	gfx.update_buffer(app.bind['inst'].vertex_buffers[1], &range )
@@ -341,7 +338,7 @@ fn draw_cube_glsl_i(mut app App){
 	// passing the view matrix as uniform
 	// res is a 4x4 matrix of f32 thus: 4*16 byte of size
 	vs_uniforms_range := C.sg_range{
-		ptr: &tr_matrix
+		ptr: unsafe { &tr_matrix }
 		size: size_t(4 * 16)
 	}
 	gfx.apply_uniforms(C.SG_SHADERSTAGE_VS, C.SLOT_vs_params_i, &vs_uniforms_range)
@@ -359,7 +356,7 @@ fn draw_cube_glsl_i(mut app App){
 		0,0                        // padding bytes , see "fs_params" struct paddings in rt_glsl.h
 	]!
 	fs_uniforms_range := C.sg_range{
-		ptr: &tmp_fs_params
+		ptr: unsafe { &tmp_fs_params }
 		size: size_t(sizeof(tmp_fs_params))
 	}
 	gfx.apply_uniforms(C.SG_SHADERSTAGE_FS, C.SLOT_fs_params, &fs_uniforms_range)

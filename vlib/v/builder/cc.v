@@ -16,7 +16,7 @@ const (
 ==================
 C error. This should never happen.
 
-If you were not working with C interop, this is a compiler bug, please raise an issue on GitHub:
+If you were not working with C interop, this is a compiler bug, please report the bug using `v bug file.v`.
 
 https://github.com/vlang/v/issues/new/choose
 
@@ -189,24 +189,43 @@ fn (mut v Builder) setup_ccompiler_options(ccompiler string) {
 	mut debug_options := ['-g']
 	mut optimization_options := ['-O2']
 	// arguments for the C compiler
-	// TODO : activate -Werror once no warnings remain
-	// '-Werror',
-	// TODO : try and remove the below workaround options when the corresponding
-	// warnings are totally fixed/removed
 	ccoptions.args = [v.pref.cflags, '-std=gnu99']
-	ccoptions.wargs = ['-Wall', '-Wextra', '-Wno-unused', '-Wno-missing-braces', '-Walloc-zero',
-		'-Wcast-qual', '-Wdate-time', '-Wduplicated-branches', '-Wduplicated-cond', '-Wformat=2',
-		'-Winit-self', '-Winvalid-pch', '-Wjump-misses-init', '-Wlogical-op', '-Wmultichar',
-		'-Wnested-externs', '-Wnull-dereference', '-Wpacked', '-Wpointer-arith', '-Wshadow',
-		'-Wswitch-default', '-Wswitch-enum', '-Wno-unused-parameter', '-Wno-unknown-warning-option',
-		'-Wno-format-nonliteral',
+	ccoptions.wargs = [
+		'-Wall',
+		'-Wextra',
+		'-Werror',
+		// if anything, these should be a `v vet` warning instead:
+		'-Wno-unused-parameter',
+		'-Wno-unused',
+		'-Wno-type-limits',
+		'-Wno-tautological-compare',
+		'-Wno-tautological-bitwise-compare',
+		// these cause various issues:
+		'-Wno-enum-conversion' /* used in vlib/sokol, where C enums in C structs are typed as V structs instead */,
+		'-Wno-sometimes-uninitialized' /* produced after exhaustive matches */,
+		'-Wno-shadow' /* the V compiler already catches this for user code, and enabling this causes issues with e.g. the `it` variable */,
+		'-Wno-int-to-void-pointer-cast',
+		'-Wno-int-to-pointer-cast' /* gcc version of the above */,
+		'-Wno-trigraphs' /* see stackoverflow.com/a/8435413 */,
+		'-Wno-missing-braces' /* see stackoverflow.com/q/13746033 */,
+		'-Wno-unknown-warning' /* if a C compiler does not understand a certain flag, it should just ignore it */,
+		'-Wno-unknown-warning-option' /* clang equivalent of the above */,
+		// enable additional warnings:
+		'-Wdate-time',
+		'-Wduplicated-branches',
+		'-Wduplicated-cond',
+		'-Winit-self',
+		'-Winvalid-pch',
+		'-Wjump-misses-init',
+		'-Wlogical-op',
+		'-Wmultichar',
+		'-Wnested-externs',
+		'-Wnull-dereference',
+		'-Wpacked',
+		'-Wpointer-arith',
+		'-Wswitch-enum',
 	]
 	if v.pref.os == .ios {
-		ccoptions.args << '-framework Foundation'
-		ccoptions.args << '-framework UIKit'
-		ccoptions.args << '-framework Metal'
-		ccoptions.args << '-framework MetalKit'
-		ccoptions.args << '-DSOKOL_METAL'
 		ccoptions.args << '-fobjc-arc'
 	}
 	ccoptions.debug_mode = v.pref.is_debug
@@ -383,14 +402,17 @@ fn (mut v Builder) setup_ccompiler_options(ccompiler string) {
 	}
 	v.ccoptions = ccoptions
 	// setup the cache too, so that different compilers/options do not interfere:
-	v.pref.cache_manager.set_temporary_options(ccoptions.thirdparty_object_args([
+	v.pref.cache_manager.set_temporary_options(v.thirdparty_object_args(v.ccoptions, [
 		ccoptions.guessed_compiler,
 	]))
 }
 
-fn (ccoptions CcompilerOptions) all_args() []string {
+fn (v &Builder) all_args(ccoptions CcompilerOptions) []string {
 	mut all := []string{}
 	all << ccoptions.env_cflags
+	if v.pref.is_cstrict {
+		all << ccoptions.wargs
+	}
 	all << ccoptions.args
 	all << ccoptions.o_args
 	all << ccoptions.pre_args
@@ -401,7 +423,7 @@ fn (ccoptions CcompilerOptions) all_args() []string {
 	return all
 }
 
-fn (ccoptions CcompilerOptions) thirdparty_object_args(middle []string) []string {
+fn (v &Builder) thirdparty_object_args(ccoptions CcompilerOptions, middle []string) []string {
 	mut all := []string{}
 	all << ccoptions.env_cflags
 	all << ccoptions.args
@@ -616,7 +638,7 @@ fn (mut v Builder) cc() {
 			}
 		}
 		//
-		all_args := v.ccoptions.all_args()
+		all_args := v.all_args(v.ccoptions)
 		v.dump_c_options(all_args)
 		str_args := all_args.join(' ')
 		// write args to response file
@@ -958,7 +980,7 @@ fn (mut v Builder) build_thirdparty_obj_file(path string, moduleflags []cflag.CF
 	all_options << moduleflags.c_options_before_target()
 	all_options << '-o "$opath"'
 	all_options << '-c "$cfile"'
-	cc_options := v.ccoptions.thirdparty_object_args(all_options).join(' ')
+	cc_options := v.thirdparty_object_args(v.ccoptions, all_options).join(' ')
 	cmd := '$v.pref.ccompiler $cc_options'
 	$if trace_thirdparty_obj_files ? {
 		println('>>> build_thirdparty_obj_files cmd: $cmd')

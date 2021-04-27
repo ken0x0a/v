@@ -43,6 +43,9 @@ pub fn (mut p Parser) parse_array_type() ast.Type {
 		}
 		// sym := p.table.get_type_symbol(elem_type)
 		idx := p.table.find_or_register_array_fixed(elem_type, fixed_size)
+		if elem_type.has_flag(.generic) {
+			return ast.new_type(idx).set_flag(.generic)
+		}
 		return ast.new_type(idx)
 	}
 	// array
@@ -61,6 +64,9 @@ pub fn (mut p Parser) parse_array_type() ast.Type {
 		nr_dims++
 	}
 	idx := p.table.find_or_register_array_with_dims(elem_type, nr_dims)
+	if elem_type.has_flag(.generic) {
+		return ast.new_type(idx).set_flag(.generic)
+	}
 	return ast.new_type(idx)
 }
 
@@ -101,6 +107,9 @@ pub fn (mut p Parser) parse_map_type() ast.Type {
 		return 0
 	}
 	idx := p.table.find_or_register_map(key_type, value_type)
+	if key_type.has_flag(.generic) || value_type.has_flag(.generic) {
+		return ast.new_type(idx).set_flag(.generic)
+	}
 	return ast.new_type(idx)
 }
 
@@ -115,6 +124,9 @@ pub fn (mut p Parser) parse_chan_type() ast.Type {
 	is_mut := p.tok.kind == .key_mut
 	elem_type := p.parse_type()
 	idx := p.table.find_or_register_chan(elem_type, is_mut)
+	if elem_type.has_flag(.generic) {
+		return ast.new_type(idx).set_flag(.generic)
+	}
 	return ast.new_type(idx)
 }
 
@@ -140,16 +152,23 @@ pub fn (mut p Parser) parse_thread_type() ast.Type {
 	}
 	ret_type := p.parse_type()
 	idx := p.table.find_or_register_thread(ret_type)
+	if ret_type.has_flag(.generic) {
+		return ast.new_type(idx).set_flag(.generic)
+	}
 	return ast.new_type(idx)
 }
 
 pub fn (mut p Parser) parse_multi_return_type() ast.Type {
 	p.check(.lpar)
 	mut mr_types := []ast.Type{}
+	mut has_generic := false
 	for p.tok.kind != .eof {
 		mr_type := p.parse_type()
 		if mr_type.idx() == 0 {
 			break
+		}
+		if mr_type.has_flag(.generic) {
+			has_generic = true
 		}
 		mr_types << mr_type
 		if p.tok.kind == .comma {
@@ -164,6 +183,9 @@ pub fn (mut p Parser) parse_multi_return_type() ast.Type {
 		return mr_types[0]
 	}
 	idx := p.table.find_or_register_multi_return(mr_types)
+	if has_generic {
+		return ast.new_type(idx).set_flag(.generic)
+	}
 	return ast.new_type(idx)
 }
 
@@ -337,7 +359,7 @@ pub fn (mut p Parser) parse_any_type(language ast.Language, is_ptr bool, check_d
 			return p.parse_multi_return_type()
 		}
 		else {
-			// no defer
+			// no p.next()
 			if name == 'map' {
 				return p.parse_map_type()
 			}
@@ -347,79 +369,80 @@ pub fn (mut p Parser) parse_any_type(language ast.Language, is_ptr bool, check_d
 			if name == 'thread' {
 				return p.parse_thread_type()
 			}
-			defer {
-				p.next()
-			}
+			mut ret := ast.Type(0)
 			if name == '' {
 				// This means the developer is using some wrong syntax like `x: int` instead of `x int`
 				p.error('expecting type declaration')
-				return 0
-			}
-			match name {
-				'voidptr' {
-					return ast.voidptr_type
-				}
-				'byteptr' {
-					return ast.byteptr_type
-				}
-				'charptr' {
-					return ast.charptr_type
-				}
-				'i8' {
-					return ast.i8_type
-				}
-				'i16' {
-					return ast.i16_type
-				}
-				'int' {
-					return ast.int_type
-				}
-				'i64' {
-					return ast.i64_type
-				}
-				'byte' {
-					return ast.byte_type
-				}
-				'u16' {
-					return ast.u16_type
-				}
-				'u32' {
-					return ast.u32_type
-				}
-				'u64' {
-					return ast.u64_type
-				}
-				'f32' {
-					return ast.f32_type
-				}
-				'f64' {
-					return ast.f64_type
-				}
-				'string' {
-					return ast.string_type
-				}
-				'char' {
-					return ast.char_type
-				}
-				'bool' {
-					return ast.bool_type
-				}
-				'float_literal' {
-					return ast.float_literal_type
-				}
-				'int_literal' {
-					return ast.int_literal_type
-				}
-				else {
-					if name.len == 1 && name[0].is_capital() {
-						return p.parse_generic_template_type(name)
+			} else {
+				match name {
+					'voidptr' {
+						ret = ast.voidptr_type
 					}
-					if p.peek_tok.kind == .lt {
-						return p.parse_generic_struct_inst_type(name)
+					'byteptr' {
+						ret = ast.byteptr_type
 					}
-					return p.parse_enum_or_struct_type(name, language)
+					'charptr' {
+						ret = ast.charptr_type
+					}
+					'i8' {
+						ret = ast.i8_type
+					}
+					'i16' {
+						ret = ast.i16_type
+					}
+					'int' {
+						ret = ast.int_type
+					}
+					'i64' {
+						ret = ast.i64_type
+					}
+					'byte' {
+						ret = ast.byte_type
+					}
+					'u16' {
+						ret = ast.u16_type
+					}
+					'u32' {
+						ret = ast.u32_type
+					}
+					'u64' {
+						ret = ast.u64_type
+					}
+					'f32' {
+						ret = ast.f32_type
+					}
+					'f64' {
+						ret = ast.f64_type
+					}
+					'string' {
+						ret = ast.string_type
+					}
+					'char' {
+						ret = ast.char_type
+					}
+					'bool' {
+						ret = ast.bool_type
+					}
+					'float_literal' {
+						ret = ast.float_literal_type
+					}
+					'int_literal' {
+						ret = ast.int_literal_type
+					}
+					else {
+						p.next()
+						if name.len == 1 && name[0].is_capital() {
+							return p.parse_generic_template_type(name)
+						}
+						if p.tok.kind == .lt {
+							return p.parse_generic_struct_inst_type(name)
+						}
+						return p.parse_enum_or_struct_type(name, language)
+					}
 				}
 			}
+			p.next()
+			return ret
 		}
 	}
 }
@@ -459,7 +482,7 @@ pub fn (mut p Parser) parse_generic_struct_inst_type(name string) ast.Type {
 	p.in_generic_params = true
 	bs_name += '<'
 	bs_cname += '_T_'
-	mut generic_types := []ast.Type{}
+	mut concrete_types := []ast.Type{}
 	mut is_instance := false
 	for p.tok.kind != .eof {
 		gt := p.parse_type()
@@ -469,7 +492,7 @@ pub fn (mut p Parser) parse_generic_struct_inst_type(name string) ast.Type {
 		gts := p.table.get_type_symbol(gt)
 		bs_name += gts.name
 		bs_cname += gts.cname
-		generic_types << gt
+		concrete_types << gt
 		if p.tok.kind != .comma {
 			break
 		}
@@ -480,7 +503,7 @@ pub fn (mut p Parser) parse_generic_struct_inst_type(name string) ast.Type {
 	p.check(.gt)
 	p.in_generic_params = false
 	bs_name += '>'
-	if is_instance && generic_types.len > 0 {
+	if is_instance && concrete_types.len > 0 {
 		mut gt_idx := p.table.find_type_idx(bs_name)
 		if gt_idx > 0 {
 			return ast.new_type(gt_idx)
@@ -497,15 +520,10 @@ pub fn (mut p Parser) parse_generic_struct_inst_type(name string) ast.Type {
 			mod: p.mod
 			info: ast.GenericStructInst{
 				parent_idx: parent_idx
-				generic_types: generic_types
+				concrete_types: concrete_types
 			}
 		})
 		return ast.new_type(idx)
-	} else {
-		idx := p.table.find_type_idx(name)
-		if idx != 0 {
-			return ast.new_type(idx).set_flag(.generic)
-		}
 	}
-	return p.parse_enum_or_struct_type(name, .v)
+	return p.parse_enum_or_struct_type(name, .v).set_flag(.generic)
 }

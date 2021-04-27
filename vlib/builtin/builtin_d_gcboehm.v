@@ -16,8 +16,8 @@ $if static_boehm ? {
 		#pkgconfig bdw-gc
 	}
 	$if windows {
-		#flag -I@VROOT/thirdparty/libgc/include
-		#flag -L@VROOT/thirdparty/libgc
+		#flag -I@VEXEROOT/thirdparty/libgc/include
+		#flag -L@VEXEROOT/thirdparty/libgc
 	}
 	#flag -lgc
 }
@@ -33,6 +33,8 @@ $if gcboehm_leak ? {
 // Do not use them manually. They are automatically chosen when
 // compiled with `-gc boehm` or `-gc boehm_leak`.
 fn C.GC_MALLOC(n size_t) voidptr
+
+fn C.GC_MALLOC_ATOMIC(n size_t) voidptr
 
 fn C.GC_MALLOC_UNCOLLECTABLE(n size_t) voidptr
 

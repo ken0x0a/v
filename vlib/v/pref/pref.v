@@ -17,10 +17,18 @@ pub enum BuildMode {
 	build_module
 }
 
+pub enum AssertFailureMode {
+	default
+	aborts
+	backtraces
+}
+
 pub enum GarbageCollectionMode {
 	no_gc
 	boehm_full // full garbage collection mode
 	boehm_incr // incremental garbage colletion mode
+	boehm_full_opt // full garbage collection mode
+	boehm_incr_opt // incremental garbage colletion mode
 	boehm // default Boehm-GC mode for architecture
 	boehm_leak // leak detection mode (makes `gc_check_leaks()` work)
 }
@@ -39,7 +47,7 @@ pub enum ColorOutput {
 pub enum Backend {
 	c // The (default) C backend
 	js // The JavaScript backend
-	x64 // The x64 backend
+	native // The Native backend
 }
 
 pub enum CompilerType {
@@ -54,8 +62,8 @@ pub enum CompilerType {
 pub enum Arch {
 	_auto
 	amd64 // aka x86_64
-	aarch64 // 64-bit arm
-	aarch32 // 32-bit arm
+	arm64 // 64-bit arm
+	arm32 // 32-bit arm
 	rv64 // 64-bit risc-v
 	rv32 // 32-bit risc-v
 	i386
@@ -164,6 +172,8 @@ pub mut:
 	cache_manager       vcache.CacheManager
 	is_help             bool // -h, -help or --help was passed
 	gc_mode             GarbageCollectionMode = .no_gc // .no_gc, .boehm, .boehm_leak, ...
+	is_cstrict          bool                  // turn on more C warnings; slightly slower
+	assert_failure_mode AssertFailureMode // whether to call abort() or print_backtrace() after an assertion failure
 	// checker settings:
 	checker_match_exhaustive_cutoff_limit int = 10
 }
@@ -193,6 +203,24 @@ pub fn parse_args(known_external_commands []string, args []string) (&Preferences
 				}
 				res.arch = target_arch_kind
 				res.build_options << '$arg $target_arch'
+			}
+			'-assert' {
+				assert_mode := cmdline.option(current_args, '-assert', '')
+				match assert_mode {
+					'aborts' {
+						res.assert_failure_mode = .aborts
+					}
+					'backtraces' {
+						res.assert_failure_mode = .backtraces
+					}
+					else {
+						eprintln('unknown assert mode `-gc $assert_mode`, supported modes are:`')
+						eprintln('  `-assert aborts`     .... calls abort() after assertion failure')
+						eprintln('  `-assert backtraces` .... calls print_backtrace() after assertion failure')
+						exit(1)
+					}
+				}
+				i++
 			}
 			'-show-timings' {
 				res.show_timings = true
@@ -225,6 +253,9 @@ pub fn parse_args(known_external_commands []string, args []string) (&Preferences
 			'-silent' {
 				res.output_mode = .silent
 			}
+			'-cstrict' {
+				res.is_cstrict = true
+			}
 			'-gc' {
 				gc_mode := cmdline.option(current_args, '-gc', '')
 				match gc_mode {
@@ -241,6 +272,18 @@ pub fn parse_args(known_external_commands []string, args []string) (&Preferences
 						parse_define(mut res, 'gcboehm')
 						parse_define(mut res, 'gcboehm_incr')
 					}
+					'boehm_full_opt' {
+						res.gc_mode = .boehm_full_opt
+						parse_define(mut res, 'gcboehm')
+						parse_define(mut res, 'gcboehm_full')
+						parse_define(mut res, 'gcboehm_opt')
+					}
+					'boehm_incr_opt' {
+						res.gc_mode = .boehm_incr_opt
+						parse_define(mut res, 'gcboehm')
+						parse_define(mut res, 'gcboehm_incr')
+						parse_define(mut res, 'gcboehm_opt')
+					}
 					'boehm' {
 						res.gc_mode = .boehm
 						parse_define(mut res, 'gcboehm')
@@ -251,7 +294,13 @@ pub fn parse_args(known_external_commands []string, args []string) (&Preferences
 						parse_define(mut res, 'gcboehm_leak')
 					}
 					else {
-						eprintln('unknown garbage collection mode, only `-gc boehm`, `-gc boehm_incr`, `-gc boehm_full` and `-gc boehm_leak` are supported')
+						eprintln('unknown garbage collection mode `-gc $gc_mode`, supported modes are:`')
+						eprintln('  `-gc boehm` ............ default mode for the platform')
+						eprintln('  `-gc boehm_full` ....... classic full collection')
+						eprintln('  `-gc boehm_incr` ....... incremental collection')
+						eprintln('  `-gc boehm_full_opt` ... optimized classic full collection')
+						eprintln('  `-gc boehm_incr_opt` ... optimized incremental collection')
+						eprintln('  `-gc boehm_leak` ....... leak detection (for debugging)')
 						exit(1)
 					}
 				}
@@ -380,8 +429,8 @@ pub fn parse_args(known_external_commands []string, args []string) (&Preferences
 			'-parallel' {
 				res.is_parallel = true
 			}
-			'-x64' {
-				res.backend = .x64
+			'-native' {
+				res.backend = .native
 				res.build_options << arg
 			}
 			'-W' {
@@ -576,6 +625,9 @@ pub fn parse_args(known_external_commands []string, args []string) (&Preferences
 			res.path += '.v'
 		}
 	}
+	if !res.is_bare && res.bare_builtin_dir != '' {
+		eprintln('`-bare-builtin-dir` must be used with `-freestanding`')
+	}
 	if command == 'build-module' {
 		res.build_mode = .build_module
 		res.path = args[command_pos + 1]
@@ -603,13 +655,13 @@ pub fn arch_from_string(arch_str string) ?Arch {
 
 			return Arch.amd64
 		}
-		'aarch64', 'arm64' { // aarch64 recommended
+		'aarch64', 'arm64' { // arm64 recommended
 
-			return Arch.aarch64
+			return Arch.arm64
 		}
-		'arm32', 'aarch32', 'arm' { // aarch32 recommended
+		'aarch32', 'arm32', 'arm' { // arm32 recommended
 
-			return Arch.aarch32
+			return Arch.arm32
 		}
 		'rv64', 'riscv64', 'risc-v64', 'riscv', 'risc-v' { // rv64 recommended
 
@@ -648,7 +700,7 @@ pub fn backend_from_string(s string) ?Backend {
 	match s {
 		'c' { return .c }
 		'js' { return .js }
-		'x64' { return .x64 }
+		'native' { return .native }
 		else { return error('Unknown backend type $s') }
 	}
 }
@@ -688,11 +740,12 @@ pub fn get_host_arch() Arch {
 	// $if i386 {
 	// 	return .amd64
 	// }
+	// $if arm64 { // requires new vc
 	$if aarch64 {
-		return .aarch64
+		return .arm64
 	}
-	// $if aarch32 {
-	// 	return .aarch32
+	// $if arm32 {
+	// 	return .arm32
 	// }
 	panic('unknown host OS')
 }

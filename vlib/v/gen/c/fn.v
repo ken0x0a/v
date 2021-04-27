@@ -69,7 +69,9 @@ fn (mut g Gen) process_fn_decl(node ast.FnDecl) {
 		}
 	}
 	keep_fn_decl := g.fn_decl
-	g.fn_decl = &node
+	unsafe {
+		g.fn_decl = &node
+	}
 	if node.name == 'main.main' {
 		g.has_main = true
 	}
@@ -127,18 +129,18 @@ fn (mut g Gen) gen_fn_decl(node ast.FnDecl, skip bool) {
 	// if g.fileis('vweb.v') {
 	// println('\ngen_fn_decl() $node.name $node.is_generic $g.cur_generic_type')
 	// }
-	if node.generic_names.len > 0 && g.cur_generic_types.len == 0 { // need the cur_generic_type check to avoid inf. recursion
+	if node.generic_names.len > 0 && g.cur_concrete_types.len == 0 { // need the cur_concrete_type check to avoid inf. recursion
 		// loop thru each generic type and generate a function
-		for gen_types in g.table.fn_gen_types[node.name] {
+		for concrete_types in g.table.fn_generic_types[node.name] {
 			if g.pref.is_verbose {
-				syms := gen_types.map(g.table.get_type_symbol(it))
+				syms := concrete_types.map(g.table.get_type_symbol(it))
 				the_type := syms.map(node.name).join(', ')
 				println('gen fn `$node.name` for type `$the_type`')
 			}
-			g.cur_generic_types = gen_types
+			g.cur_concrete_types = concrete_types
 			g.gen_fn_decl(node, skip)
 		}
-		g.cur_generic_types = []
+		g.cur_concrete_types = []
 		return
 	}
 	cur_fn_save := g.cur_fn
@@ -173,12 +175,12 @@ fn (mut g Gen) gen_fn_decl(node ast.FnDecl, skip bool) {
 		name = c_name(name)
 	}
 	mut type_name := g.typ(node.return_type)
-	if g.cur_generic_types.len > 0 {
+	if g.cur_concrete_types.len > 0 {
 		// foo<T>() => foo_T_int(), foo_T_string() etc
 		// Using _T_ to differentiate between get<string> and get_string
 		name += '_T'
-		for generic_type in g.cur_generic_types {
-			gen_name := g.typ(generic_type)
+		for concrete_type in g.cur_concrete_types {
+			gen_name := g.typ(concrete_type)
 			name += '_' + gen_name
 		}
 	}
@@ -416,7 +418,7 @@ fn (mut g Gen) call_expr(node ast.CallExpr) {
 		g.inside_call = false
 	}
 	gen_keep_alive := node.is_keep_alive && node.return_type != ast.void_type
-		&& g.pref.gc_mode in [.boehm_full, .boehm_incr, .boehm]
+		&& g.pref.gc_mode in [.boehm_full, .boehm_incr, .boehm_full_opt, .boehm_incr_opt, .boehm]
 	gen_or := node.or_block.kind != .absent // && !g.is_autofree
 	is_gen_or_and_assign_rhs := gen_or && !g.discard_or_result
 	cur_line := if is_gen_or_and_assign_rhs || gen_keep_alive { // && !g.is_autofree {
@@ -477,7 +479,9 @@ fn (mut g Gen) call_expr(node ast.CallExpr) {
 
 pub fn (mut g Gen) unwrap_generic(typ ast.Type) ast.Type {
 	if typ.has_flag(.generic) {
-		if t_typ := g.table.resolve_generic_by_names(typ, g.cur_fn.generic_names, g.cur_generic_types) {
+		if t_typ := g.table.resolve_generic_to_concrete(typ, g.cur_fn.generic_names, g.cur_concrete_types,
+			false)
+		{
 			return t_typ
 		}
 	}
@@ -605,7 +609,7 @@ fn (mut g Gen) method_call(node ast.CallExpr) {
 	}
 	// TODO performance, detect `array` method differently
 	if left_sym.kind == .array
-		&& node.name in ['repeat', 'sort_with_compare', 'free', 'push_many', 'trim', 'first', 'last', 'pop', 'clone', 'reverse', 'slice'] {
+		&& node.name in ['repeat', 'sort_with_compare', 'free', 'push_many', 'trim', 'first', 'last', 'pop', 'clone', 'reverse', 'slice', 'pointers'] {
 		// && rec_sym.name == 'array' {
 		// && rec_sym.name == 'array' && receiver_name.starts_with('array') {
 		// `array_byte_clone` => `array_clone`
@@ -654,14 +658,14 @@ fn (mut g Gen) method_call(node ast.CallExpr) {
 			}
 		}
 	}
-	for i, generic_type in node.generic_types {
-		if generic_type != ast.void_type && generic_type != 0 {
+	for i, concrete_type in node.concrete_types {
+		if concrete_type != ast.void_type && concrete_type != 0 {
 			// Using _T_ to differentiate between get<string> and get_string
 			// `foo<int>()` => `foo_T_int()`
 			if i == 0 {
 				name += '_T'
 			}
-			name += '_' + g.typ(generic_type)
+			name += '_' + g.typ(concrete_type)
 		}
 	}
 	// TODO2
@@ -832,13 +836,13 @@ fn (mut g Gen) fn_call(node ast.CallExpr) {
 			panic('cgen: obf name "$key" not found, this should never happen')
 		}
 	}
-	for i, generic_type in node.generic_types {
+	for i, concrete_type in node.concrete_types {
 		// Using _T_ to differentiate between get<string> and get_string
 		// `foo<int>()` => `foo_T_int()`
 		if i == 0 {
 			name += '_T'
 		}
-		name += '_' + g.typ(generic_type)
+		name += '_' + g.typ(concrete_type)
 	}
 	// TODO2
 	// cgen shouldn't modify ast nodes, this should be moved
@@ -890,7 +894,8 @@ fn (mut g Gen) fn_call(node ast.CallExpr) {
 			if g.is_json_fn {
 				g.write(json_obj)
 			} else {
-				if node.is_keep_alive && g.pref.gc_mode in [.boehm_full, .boehm_incr, .boehm] {
+				if node.is_keep_alive
+					&& g.pref.gc_mode in [.boehm_full, .boehm_incr, .boehm_full_opt, .boehm_incr_opt, .boehm] {
 					cur_line := g.go_before_stmt(0)
 					tmp_cnt_save = g.keep_alive_call_pregen(node)
 					g.write(cur_line)
@@ -1032,7 +1037,7 @@ fn (mut g Gen) autofree_call_postgen(node_pos int) {
 					// this means this tmp expr var has already been freed
 					continue
 				}
-				obj.is_used = true
+				obj.is_used = true // TODO bug? sets all vars is_used to true
 				g.autofree_variable(obj)
 				// g.nr_vars_to_free--
 			}
@@ -1071,7 +1076,7 @@ fn (mut g Gen) call_args(node ast.CallExpr) {
 					g.write('/*af arg*/' + name)
 				}
 			} else {
-				if node.generic_types.len > 0 && arg.expr.is_auto_deref_var() && !arg.is_mut
+				if node.concrete_types.len > 0 && arg.expr.is_auto_deref_var() && !arg.is_mut
 					&& !expected_types[i].is_ptr() {
 					g.write('*')
 				}
@@ -1103,7 +1108,7 @@ fn (mut g Gen) call_args(node ast.CallExpr) {
 				varg_type_name := g.table.type_to_str(varg_type)
 				for i, fn_gen_name in fn_def.generic_names {
 					if fn_gen_name == varg_type_name {
-						arr_info.elem_type = node.generic_types[i]
+						arr_info.elem_type = node.concrete_types[i]
 						break
 					}
 				}

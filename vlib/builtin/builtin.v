@@ -4,13 +4,19 @@
 module builtin
 
 __global (
-	g_m2_buf &byte 
-	g_m2_ptr &byte 
+	g_m2_buf &byte
+	g_m2_ptr &byte
 )
 
 // isnil returns true if an object is nil (only for C objects).
 pub fn isnil(v voidptr) bool {
 	return v == 0
+}
+
+[deprecated: 'use os.is_atty(x) instead']
+pub fn is_atty(fd int) int {
+	panic('use os.is_atty(x) instead')
+	return 0
 }
 
 /*
@@ -26,7 +32,11 @@ pub fn print_backtrace() {
 	// 1 frame for print_backtrace itself
 	// ... print the rest of the backtrace frames ...
 	// => top 2 frames should be skipped, since they will not be informative to the developer
-	print_backtrace_skipping_top_frames(2)
+	$if freestanding {
+		println(bare_backtrace())
+	} $else {
+		print_backtrace_skipping_top_frames(2)
+	}
 }
 
 struct VCastTypeIndexName {
@@ -38,7 +48,7 @@ __global (
 	total_m              = i64(0)
 	nr_mallocs           = int(0)
 	// will be filled in cgen
-	as_cast_type_indexes   []VCastTypeIndexName 
+	as_cast_type_indexes []VCastTypeIndexName
 )
 
 fn __as_cast(obj voidptr, obj_type int, expected_type int) voidptr {
@@ -110,4 +120,19 @@ pub:
 	is_pub bool
 	is_mut bool
 	typ    int
+}
+
+pub enum AttributeKind {
+	plain // [name]
+	string // ['name']
+	number // [123]
+	comptime_define // [if name]
+}
+
+pub struct StructAttribute {
+pub:
+	name    string
+	has_arg bool
+	arg     string
+	kind    AttributeKind
 }

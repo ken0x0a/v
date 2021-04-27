@@ -19,8 +19,8 @@ pub type Expr = AnonFn | ArrayDecompose | ArrayInit | AsCast | Assoc | AtExpr | 
 
 pub type Stmt = AsmStmt | AssertStmt | AssignStmt | Block | BranchStmt | CompFor | ConstDecl |
 	DeferStmt | EmptyStmt | EnumDecl | ExprStmt | FnDecl | ForCStmt | ForInStmt | ForStmt |
-	GlobalDecl | GoStmt | GotoLabel | GotoStmt | HashStmt | Import | InterfaceDecl | Module |
-	NodeError | Return | SqlStmt | StructDecl | TypeDecl
+	GlobalDecl | GotoLabel | GotoStmt | HashStmt | Import | InterfaceDecl | Module | NodeError |
+	Return | SqlStmt | StructDecl | TypeDecl
 
 // NB: when you add a new Expr or Stmt type with a .pos field, remember to update
 // the .position() token.Position methods too.
@@ -228,10 +228,10 @@ pub mut:
 
 pub struct StructDecl {
 pub:
-	pos       token.Position
-	name      string
-	gen_types []Type
-	is_pub    bool
+	pos           token.Position
+	name          string
+	generic_types []Type
+	is_pub        bool
 	// _pos fields for vfmt
 	mut_pos      int // mut:
 	pub_pos      int // pub:
@@ -264,6 +264,7 @@ pub struct InterfaceDecl {
 pub:
 	name         string
 	name_pos     token.Position
+	language     Language
 	field_names  []string
 	is_pub       bool
 	methods      []FnDecl
@@ -378,17 +379,18 @@ pub:
 	attrs           []Attr
 	skip_gen        bool // this function doesn't need to be generated (for example [if foo])
 pub mut:
-	stmts           []Stmt
-	defer_stmts     []DeferStmt
-	return_type     Type
-	return_type_pos token.Position // `string` in `fn (u User) name() string` position
-	has_return      bool
-	comments        []Comment // comments *after* the header, but *before* `{`; used for InterfaceDecl
-	next_comments   []Comment // coments that are one line after the decl; used for InterfaceDecl
-	source_file     &File = 0
-	scope           &Scope
-	label_names     []string
-	pos             token.Position // function declaration position
+	stmts             []Stmt
+	defer_stmts       []DeferStmt
+	return_type       Type
+	return_type_pos   token.Position // `string` in `fn (u User) name() string` position
+	has_return        bool
+	comments          []Comment // comments *after* the header, but *before* `{`; used for InterfaceDecl
+	next_comments     []Comment // coments that are one line after the decl; used for InterfaceDecl
+	source_file       &File = 0
+	scope             &Scope
+	label_names       []string
+	pos               token.Position // function declaration position
+	cur_generic_types []Type
 }
 
 // break, continue
@@ -419,8 +421,8 @@ pub mut:
 	receiver_type      Type // User
 	return_type        Type
 	should_be_skipped  bool
-	generic_types      []Type
-	generic_list_pos   token.Position
+	concrete_types     []Type // concrete types, e.g. <int, string>
+	concrete_list_pos  token.Position
 	free_receiver      bool // true if the receiver expression needs to be freed
 	scope              &Scope
 	from_embed_type    Type // holds the type of the embed that the method is called from
@@ -492,8 +494,11 @@ pub mut:
 	is_changed bool // to detect mutable vars that are never changed
 	//
 	// (for setting the position after the or block for autofree)
-	is_or  bool // `x := foo() or { ... }`
-	is_tmp bool // for tmp for loop vars, so that autofree can skip them
+	is_or        bool // `x := foo() or { ... }`
+	is_tmp       bool // for tmp for loop vars, so that autofree can skip them
+	is_auto_heap bool // value whoes address goes out of scope
+	is_heap_ref  bool // *known* to be pointer to heap memory (ptr to [heap] struct)
+	is_stack_obj bool // may be pointer to stack value (`mut` or `&` arg and not [heap] struct)
 }
 
 // used for smartcasting only
@@ -518,6 +523,7 @@ pub:
 	expr     Expr
 	has_expr bool
 	pos      token.Position
+	typ_pos  token.Position
 pub mut:
 	typ      Type
 	comments []Comment
@@ -525,7 +531,8 @@ pub mut:
 
 pub struct GlobalDecl {
 pub:
-	pos token.Position
+	pos      token.Position
+	is_block bool // __global() block
 pub mut:
 	fields       []GlobalField
 	end_comments []Comment
@@ -548,6 +555,7 @@ pub:
 	bytes        int    // number of processed source code bytes
 	mod          Module // the module of the source file (from `module xyz` at the top)
 	global_scope &Scope
+	is_test      bool // true for _test.v files
 pub mut:
 	scope            &Scope
 	stmts            []Stmt            // all the statements in the source file
@@ -560,6 +568,24 @@ pub mut:
 	notices          []errors.Notice   // all the checker notices in the file
 	generic_fns      []&FnDecl
 	global_labels    []string // from `asm { .globl labelname }`
+}
+
+[unsafe]
+pub fn (f &File) free() {
+	unsafe {
+		f.path.free()
+		f.path_base.free()
+		f.scope.free()
+		f.stmts.free()
+		f.imports.free()
+		f.auto_imports.free()
+		f.embedded_files.free()
+		f.imported_symbols.free()
+		f.errors.free()
+		f.warnings.free()
+		f.notices.free()
+		f.global_labels.free()
+	}
 }
 
 pub struct IdentFn {
@@ -764,6 +790,7 @@ pub:
 pub enum CompForKind {
 	methods
 	fields
+	attributes
 }
 
 pub struct CompFor {
@@ -963,20 +990,12 @@ pub:
 	pos  token.Position
 }
 
-pub struct GoStmt {
-pub:
-	pos token.Position
-pub mut:
-	call_expr CallExpr
-}
-
 pub struct GoExpr {
 pub:
 	pos token.Position
 pub mut:
-	go_stmt GoStmt
-mut:
-	return_type Type
+	call_expr CallExpr
+	is_expr   bool
 }
 
 pub struct GotoLabel {
@@ -1108,9 +1127,8 @@ pub type AsmArg = AsmAddressing | AsmAlias | AsmDisp | AsmRegister | BoolLiteral
 	FloatLiteral | IntegerLiteral | string
 
 pub struct AsmRegister {
-pub:
-	name string // eax or r12d
-mut:
+pub mut:
+	name string // eax or r12d etc.
 	typ  Type
 	size int
 }
@@ -1123,8 +1141,9 @@ pub:
 
 pub struct AsmAlias {
 pub:
+	pos token.Position
+pub mut:
 	name string // a
-	pos  token.Position
 }
 
 pub struct AsmAddressing {
@@ -1253,7 +1272,8 @@ pub struct AssertStmt {
 pub:
 	pos token.Position
 pub mut:
-	expr Expr
+	expr    Expr
+	is_used bool // asserts are used in _test.v files, as well as in non -prod builds of all files
 }
 
 // `if [x := opt()] {`
@@ -1415,12 +1435,20 @@ pub enum SqlStmtKind {
 	update
 	delete
 	create
+	drop
 }
 
 pub struct SqlStmt {
 pub:
+	pos     token.Position
+	db_expr Expr // `db` in `sql db {`
+pub mut:
+	lines []SqlStmtLine
+}
+
+pub struct SqlStmtLine {
+pub:
 	kind            SqlStmtKind
-	db_expr         Expr   // `db` in `sql db {`
 	object_var_name string // `user`
 	pos             token.Position
 	where_expr      Expr
@@ -1429,7 +1457,7 @@ pub:
 pub mut:
 	table_expr  TypeNode
 	fields      []StructField
-	sub_structs map[int]SqlStmt
+	sub_structs map[int]SqlStmtLine
 }
 
 pub struct SqlExpr {
@@ -1854,17 +1882,17 @@ pub fn all_registers(mut t Table, arch pref.Arch) map[string]ScopeObject {
 				}
 			}
 		}
-		.aarch32 {
-			aarch32 := gen_all_registers(mut t, ast.arm_no_number_register_list, ast.arm_with_number_register_list,
+		.arm32 {
+			arm32 := gen_all_registers(mut t, ast.arm_no_number_register_list, ast.arm_with_number_register_list,
 				32)
-			for k, v in aarch32 {
+			for k, v in arm32 {
 				res[k] = v
 			}
 		}
-		.aarch64 {
-			aarch64 := gen_all_registers(mut t, ast.arm_no_number_register_list, ast.arm_with_number_register_list,
+		.arm64 {
+			arm64 := gen_all_registers(mut t, ast.arm_no_number_register_list, ast.arm_with_number_register_list,
 				64)
-			for k, v in aarch64 {
+			for k, v in arm64 {
 				res[k] = v
 			}
 		}

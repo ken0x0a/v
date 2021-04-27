@@ -5,12 +5,14 @@ import io
 #flag -lpq
 #flag linux -I/usr/include/postgresql
 #flag darwin -I/opt/local/include/postgresql11
-#flag windows -I @VROOT/thirdparty/pg/include
-#flag windows -L @VROOT/thirdparty/pg/win64
+#flag windows -I @VEXEROOT/thirdparty/pg/include
+#flag windows -L @VEXEROOT/thirdparty/pg/win64
 
 // PostgreSQL Source Code
 // https://doxygen.postgresql.org/libpq-fe_8h.html
 #include <libpq-fe.h>
+// for orm
+#include <arpa/inet.h>
 
 pub struct DB {
 mut:
@@ -59,7 +61,7 @@ fn C.PQexecParams(conn voidptr, command byteptr, nParams int, paramTypes int, pa
 
 fn C.PQputCopyData(conn voidptr, buffer byteptr, nbytes int) int
 
-fn C.PQputCopyEnd(voidptr, int) int
+fn C.PQputCopyEnd(voidptr, &byte) int
 
 fn C.PQgetCopyData(conn voidptr, buffer &byteptr, async int) int
 

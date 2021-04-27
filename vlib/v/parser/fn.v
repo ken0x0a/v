@@ -26,27 +26,27 @@ pub fn (mut p Parser) call_expr(language ast.Language, mod string) ast.CallExpr 
 		p.expecting_type = true // Makes name_expr() parse the type `User` in `json.decode(User, txt)`
 		or_kind = .block
 	}
-	//
+
 	old_expr_mod := p.expr_mod
 	defer {
 		p.expr_mod = old_expr_mod
 	}
 	p.expr_mod = ''
-	//
-	mut generic_types := []ast.Type{}
-	mut generic_list_pos := p.tok.position()
+
+	mut concrete_types := []ast.Type{}
+	mut concrete_list_pos := p.tok.position()
 	if p.tok.kind == .lt {
 		// `foo<int>(10)`
 		p.expr_mod = ''
-		generic_types = p.parse_generic_type_list()
-		generic_list_pos = generic_list_pos.extend(p.prev_tok.position())
+		concrete_types = p.parse_generic_type_list()
+		concrete_list_pos = concrete_list_pos.extend(p.prev_tok.position())
 		// In case of `foo<T>()`
 		// T is unwrapped and registered in the checker.
 		full_generic_fn_name := if fn_name.contains('.') { fn_name } else { p.prepend_mod(fn_name) }
-		has_generic_generic := generic_types.filter(it.has_flag(.generic)).len > 0
+		has_generic_generic := concrete_types.filter(it.has_flag(.generic)).len > 0
 		if !has_generic_generic {
 			// will be added in checker
-			p.table.register_fn_gen_type(full_generic_fn_name, generic_types)
+			p.table.register_fn_generic_types(full_generic_fn_name, concrete_types)
 		}
 	}
 	p.check(.lpar)
@@ -95,8 +95,8 @@ pub fn (mut p Parser) call_expr(language ast.Language, mod string) ast.CallExpr 
 		mod: p.mod
 		pos: pos
 		language: language
-		generic_types: generic_types
-		generic_list_pos: generic_list_pos
+		concrete_types: concrete_types
+		concrete_list_pos: concrete_list_pos
 		or_block: ast.OrExpr{
 			stmts: or_stmts
 			kind: or_kind
@@ -177,7 +177,7 @@ fn (mut p Parser) fn_decl() ast.FnDecl {
 	is_manualfree := p.is_manualfree || p.attrs.contains('manualfree')
 	is_deprecated := p.attrs.contains('deprecated')
 	is_direct_arr := p.attrs.contains('direct_array_access')
-	is_conditional, conditional_ctdefine := p.attrs.has_comptime_define()
+	conditional_ctdefine := p.attrs.find_comptime_define() or { '' }
 	mut is_unsafe := p.attrs.contains('unsafe')
 	is_keep_alive := p.attrs.contains('keep_args_alive')
 	is_pub := p.tok.kind == .key_pub
@@ -221,13 +221,13 @@ fn (mut p Parser) fn_decl() ast.FnDecl {
 		language = rec.language
 	}
 	mut name := ''
+	name_pos := p.tok.position()
 	if p.tok.kind == .name {
-		pos := p.tok.position()
 		// TODO high order fn
 		name = if language == .js { p.check_js_name() } else { p.check_name() }
 		if language == .v && !p.pref.translated && util.contains_capital(name) && !p.builtin_mod {
 			p.error_with_pos('function names cannot contain uppercase letters, use snake_case instead',
-				pos)
+				name_pos)
 			return ast.FnDecl{
 				scope: 0
 			}
@@ -243,7 +243,7 @@ fn (mut p Parser) fn_decl() ast.FnDecl {
 				}
 			}
 			if is_duplicate {
-				p.error_with_pos('duplicate method `$name`', pos)
+				p.error_with_pos('duplicate method `$name`', name_pos)
 				return ast.FnDecl{
 					scope: 0
 				}
@@ -251,7 +251,7 @@ fn (mut p Parser) fn_decl() ast.FnDecl {
 		}
 		// cannot redefine buildin function
 		if !is_method && !p.builtin_mod && name in builtin_functions {
-			p.error_with_pos('cannot redefine builtin function `$name`', pos)
+			p.error_with_pos('cannot redefine builtin function `$name`', name_pos)
 			return ast.FnDecl{
 				scope: 0
 			}
@@ -267,14 +267,20 @@ fn (mut p Parser) fn_decl() ast.FnDecl {
 		p.error_with_pos('cannot overload `!=`, `>`, `<=` and `>=` as they are auto generated from `==` and`<`',
 			p.tok.position())
 	} else {
-		pos := p.tok.position()
-		p.error_with_pos('expecting method name', pos)
+		p.error_with_pos('expecting method name', p.tok.position())
 		return ast.FnDecl{
 			scope: 0
 		}
 	}
 	// <T>
-	generic_names := p.parse_generic_names()
+	mut generic_names := p.parse_generic_names()
+	// generic names can be infer with receiver's generic names
+	if is_method && rec.typ.has_flag(.generic) && generic_names.len == 0 {
+		sym := p.table.get_type_symbol(rec.typ)
+		if sym.info is ast.Struct {
+			generic_names = sym.info.generic_types.map(p.table.get_type_symbol(it).name)
+		}
+	}
 	// Args
 	args2, are_args_type_only, is_variadic := p.fn_args()
 	params << args2
@@ -286,11 +292,28 @@ fn (mut p Parser) fn_decl() ast.FnDecl {
 					scope: 0
 				}
 			}
+			mut is_heap_ref := false // args are only borrowed, so assume maybe on stack
+			mut is_stack_obj := true
+			nr_muls := param.typ.nr_muls()
+			if nr_muls == 1 { // mut a St, b &St
+				base_type_sym := p.table.get_type_symbol(param.typ.set_nr_muls(0))
+				if base_type_sym.kind == .struct_ {
+					info := base_type_sym.info as ast.Struct
+					is_heap_ref = info.is_heap // if type is declared as [heap] we can assume this, too
+					is_stack_obj = !is_heap_ref
+				}
+			}
+			if param.typ.has_flag(.shared_f) {
+				is_heap_ref = true
+				is_stack_obj = false
+			}
 			p.scope.register(ast.Var{
 				name: param.name
 				typ: param.typ
 				is_mut: param.is_mut
 				is_auto_deref: param.is_mut || param.is_auto_rec
+				is_heap_ref: is_heap_ref
+				is_stack_obj: is_stack_obj
 				pos: param.pos
 				is_used: true
 				is_arg: true
@@ -344,7 +367,7 @@ fn (mut p Parser) fn_decl() ast.FnDecl {
 			is_unsafe: is_unsafe
 			is_main: is_main
 			is_test: is_test
-			is_conditional: is_conditional
+			is_conditional: conditional_ctdefine != ''
 			is_keep_alive: is_keep_alive
 			ctdefine: conditional_ctdefine
 			no_body: no_body
@@ -373,7 +396,7 @@ fn (mut p Parser) fn_decl() ast.FnDecl {
 			is_unsafe: is_unsafe
 			is_main: is_main
 			is_test: is_test
-			is_conditional: is_conditional
+			is_conditional: conditional_ctdefine != ''
 			is_keep_alive: is_keep_alive
 			ctdefine: conditional_ctdefine
 			no_body: no_body
@@ -416,7 +439,7 @@ fn (mut p Parser) fn_decl() ast.FnDecl {
 		is_variadic: is_variadic
 		is_main: is_main
 		is_test: is_test
-		is_conditional: is_conditional
+		is_conditional: conditional_ctdefine != ''
 		is_keep_alive: is_keep_alive
 		receiver: ast.StructField{
 			name: rec.name
@@ -568,12 +591,29 @@ fn (mut p Parser) anon_fn() ast.AnonFn {
 		return ast.AnonFn{}
 	}
 	p.open_scope()
-	p.scope.detached_from_parent = true
+	if p.pref.backend != .js {
+		p.scope.detached_from_parent = true
+	}
 	// TODO generics
 	args, _, is_variadic := p.fn_args()
 	for arg in args {
 		if arg.name.len == 0 {
 			p.error_with_pos('use `_` to name an unused parameter', arg.pos)
+		}
+		mut is_heap_ref := false // args are only borrowed, so assume maybe on stack
+		mut is_stack_obj := true
+		nr_muls := arg.typ.nr_muls()
+		if nr_muls == 1 { // mut a St, b &St
+			base_type_sym := p.table.get_type_symbol(arg.typ.set_nr_muls(0))
+			if base_type_sym.kind == .struct_ {
+				info := base_type_sym.info as ast.Struct
+				is_heap_ref = info.is_heap // if type is declared as [heap] we can assume this, too
+				is_stack_obj = !is_heap_ref
+			}
+		}
+		if arg.typ.has_flag(.shared_f) {
+			is_heap_ref = true
+			is_stack_obj = false
 		}
 		p.scope.register(ast.Var{
 			name: arg.name
@@ -582,6 +622,8 @@ fn (mut p Parser) anon_fn() ast.AnonFn {
 			pos: arg.pos
 			is_used: true
 			is_arg: true
+			is_heap_ref: is_heap_ref
+			is_stack_obj: is_stack_obj
 		})
 	}
 	mut same_line := p.tok.line_nr == p.prev_tok.line_nr
@@ -839,7 +881,8 @@ fn (mut p Parser) fn_args() ([]ast.Param, bool, bool) {
 
 fn (mut p Parser) check_fn_mutable_arguments(typ ast.Type, pos token.Position) {
 	sym := p.table.get_type_symbol(typ)
-	if sym.kind in [.array, .array_fixed, .interface_, .map, .placeholder, .struct_, .sum_type] {
+	if sym.kind in [.array, .array_fixed, .interface_, .map, .placeholder, .struct_,
+		.generic_struct_inst, .sum_type] {
 		return
 	}
 	if typ.is_ptr() || typ.is_pointer() {

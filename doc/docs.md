@@ -124,6 +124,7 @@ For more details and troubleshooting, please visit the [vab GitHub repository](h
     * [v fmt](#v-fmt)
     * [Profiling](#profiling)
 * [Advanced Topics](#advanced-topics)
+    * [Dumping expressions at runtime](#dumping-expressions-at-runtime)
     * [Memory-unsafe code](#memory-unsafe-code)
     * [Structs with reference fields](#structs-with-reference-fields)
     * [sizeof and __offsetof](#sizeof-and-__offsetof)
@@ -342,7 +343,7 @@ Note the (important) difference between `:=` and `=`.
 
 ```v failcompile
 fn main() {
-    age = 21
+	age = 21
 }
 ```
 
@@ -373,13 +374,13 @@ In development mode the compiler will warn you that you haven't used the variabl
 In production mode (enabled by passing the `-prod` flag to v – `v -prod foo.v`)
 it will not compile at all (like in Go).
 
-```v failcompile
+```v failcompile nofmt
 fn main() {
-    a := 10
-    if true {
-        a := 20 // error: redefinition of `a`
-    }
-    // warning: unused variable `a`
+	a := 10
+	if true {
+		a := 20 // error: redefinition of `a`
+	}
+	// warning: unused variable `a`
 }
 ```
 
@@ -392,8 +393,8 @@ import ui
 import gg
 
 fn draw(ctx &gg.Context) {
-    gg := ctx.parent.get_ui().gg
-    gg.draw_rect(10, 10, 100, 50)
+	gg := ctx.parent.get_ui().gg
+	gg.draw_rect(10, 10, 100, 50)
 }
 ```
 
@@ -413,7 +414,7 @@ rune // represents a Unicode code point
 
 f32 f64
 
-byteptr, voidptr, charptr, size_t // these are mostly used for C interoperability
+voidptr, size_t // these are mostly used for C interoperability
 
 any // similar to C's void* and Go's interface{}
 ```
@@ -936,9 +937,9 @@ import crypto.sha256
 import mymod.sha256 as mysha256
 
 fn main() {
-    v_hash := sha256.sum('hi'.bytes()).hex()
-    my_hash := mysha256.sum('hi'.bytes()).hex()
-    assert my_hash == v_hash
+	v_hash := mysha256.sum('hi'.bytes()).hex()
+	my_hash := mysha256.sum('hi'.bytes()).hex()
+	assert my_hash == v_hash
 }
 ```
 
@@ -1382,6 +1383,48 @@ fn read_log() {
 }
 ```
 
+If the function returns a value the `defer` block is executed *after* the return
+expression is evaluated: 
+
+```v
+import os
+
+enum State {
+	normal
+	write_log
+	return_error
+}
+
+// write log file and return number of bytes written
+fn write_log(s State) ?int {
+	mut f := os.create('log.txt') ?
+	defer {
+		f.close()
+	}
+	if s == .write_log {
+		// `f.close()` will be called after `f.write()` has been
+		// executed, but before `write_log()` finally returns the
+		// number of bytes written to `main()`
+		return f.writeln('This is a log file')
+	} else if s == .return_error {
+		// the file will be closed after the `error()` function
+		// has returned - so the error message will still report
+		// it as open
+		return error('nothing written; file open: $f.is_opened')
+	}
+	// the file will be closed here, too
+	return 0
+}
+
+fn main() {
+	n := write_log(.return_error) or {
+		println('Error: $err')
+		0
+	}
+	println('$n bytes written')
+}
+```
+
 ## Structs
 
 ```v
@@ -1569,7 +1612,7 @@ For example, here's the `string` type defined in the `builtin` module:
 
 ```v ignore
 struct string {
-    str byteptr
+    str &byte
 pub:
     len int
 }
@@ -1580,9 +1623,9 @@ The byte pointer with the string data is not accessible outside `builtin` at all
 The `len` field is public, but immutable:
 ```v failcompile
 fn main() {
-    str := 'hello'
-    len := str.len // OK
-    str.len++      // Compilation error
+	str := 'hello'
+	len := str.len // OK
+	str.len++ // Compilation error
 }
 ```
 
@@ -2015,7 +2058,7 @@ module mymodule
 
 // To export a function we have to use `pub`
 pub fn say_hi() {
-    println('hello from mymodule!')
+	println('hello from mymodule!')
 }
 ```
 
@@ -2025,7 +2068,7 @@ You can now use `mymodule` in your code:
 import mymodule
 
 fn main() {
-    mymodule.say_hi()
+	mymodule.say_hi()
 }
 ```
 
@@ -2081,7 +2124,7 @@ v install [module]
 v install ui
 ```
 
-For remove a module:
+Removing a module with v:
 
 ```powershell
 v remove [module]
@@ -2091,7 +2134,7 @@ v remove [module]
 v remove ui
 ```
 
-For update an installed module from [VPM](https://vpm.vlang.io/):
+Updating an installed module from [VPM](https://vpm.vlang.io/):
 
 ```powershell
 v update [module]
@@ -2803,13 +2846,13 @@ Objects can be pushed to channels using the arrow operator. The same operator ca
 pop objects from the other end:
 
 ```v
-ch := chan int{}
-ch2 := chan f64{}
+// make buffered channels so pushing does not block (if there is room in the buffer)
+ch := chan int{cap: 1}
+ch2 := chan f64{cap: 1}
 n := 5
-x := 7.3
-ch <- n
 // push
-ch2 <- x
+ch <- n
+ch2 <- 7.3
 mut y := f64(0.0)
 m := <-ch // pop creating new variable
 y = <-ch2 // pop into existing variable
@@ -2903,7 +2946,7 @@ println(l)
 println(c)
 mut b := Abc{}
 ch2 := chan Abc{}
-res2 := ch2.try_pop(b) // try to perform `b = <-ch2`
+res2 := ch2.try_pop(mut b) // try to perform `b = <-ch2`
 ```
 
 The `try_push/pop()` methods will return immediately with one of the results
@@ -3025,9 +3068,10 @@ fn main() {
 
 ```v failcompile
 module main
+
 // hello_test.v
 fn test_hello() {
-    assert hello() == 'Hello world'
+	assert hello() == 'Hello world'
 }
 ```
 To run the test above, use `v hello_test.v`. This will check that the function `hello` is
@@ -3147,8 +3191,8 @@ fn test() []int {
 
 (This is still in an alpha state)
 
-V has a built-in ORM (object-relational mapping) which supports SQLite and MySQL,
-but soon it will support Postgres, MS SQL, and Oracle.
+V has a built-in ORM (object-relational mapping) which supports SQLite, MySQL and Postgres,
+but soon it will support MS SQL and Oracle.
 
 V's ORM provides a number of benefits:
 
@@ -3283,6 +3327,39 @@ fn main() {
 ```
 
 # Advanced Topics
+
+## Dumping expressions at runtime
+You can dump/trace the value of any V expression using `dump(expr)`.
+For example, save this code sample as `factorial.v`, then run it with
+`v run factorial.v`:
+```v
+fn factorial(n u32) u32 {
+	if dump(n <= 1) {
+		return dump(1)
+	}
+	return dump(n * factorial(n - 1))
+}
+
+fn main() {
+	println(factorial(5))
+}
+```
+You will get:
+```
+[factorial.v:2] n <= 1: false
+[factorial.v:2] n <= 1: false
+[factorial.v:2] n <= 1: false
+[factorial.v:2] n <= 1: false
+[factorial.v:2] n <= 1: true
+[factorial.v:3] 1: 1
+[factorial.v:5] n * factorial(n - 1): 2
+[factorial.v:5] n * factorial(n - 1): 6
+[factorial.v:5] n * factorial(n - 1): 24
+[factorial.v:5] n * factorial(n - 1): 120
+120
+```
+Note that `dump(expr)` will trace both the source location, 
+the expression itself, and the expression value.
 
 ## Memory-unsafe code
 
@@ -3520,20 +3597,20 @@ Module {
 
 * Add these lines to the top of your module:
 ```v oksyntax
-#flag -I @VROOT/c
-#flag @VROOT/c/implementation.o
+#flag -I @VMODROOT/c
+#flag @VMODROOT/c/implementation.o
 #include "header.h"
 ```
-NB: @VROOT will be replaced by V with the *nearest parent folder, where there is a v.mod file*.
+NB: @VMODROOT will be replaced by V with the *nearest parent folder, where there is a v.mod file*.
 Any .v file beside or below the folder where the v.mod file is,
-can use `#flag @VROOT/abc` to refer to this folder.
-The @VROOT folder is also *prepended* to the module lookup path,
-so you can *import* other modules under your @VROOT, by just naming them.
+can use `#flag @VMODROOT/abc` to refer to this folder.
+The @VMODROOT folder is also *prepended* to the module lookup path,
+so you can *import* other modules under your @VMODROOT, by just naming them.
 
 The instructions above will make V look for an compiled .o file in
 your module `folder/c/implementation.o`.
 If V finds it, the .o file will get linked to the main executable, that used the module.
-If it does not find it, V assumes that there is a `@VROOT/c/implementation.c` file,
+If it does not find it, V assumes that there is a `@VMODROOT/c/implementation.c` file,
 and tries to compile it to a .o file, then will use that.
 
 This allows you to have C code, that is contained in a V module, so that its distribution is easier.
@@ -3545,8 +3622,8 @@ Another example, demonstrating passing structs from C to V and back again:
 ### C types
 
 Ordinary zero terminated C strings can be converted to V strings with
-`unsafe { charptr(cstring).vstring() }` or if you know their length already with
-`unsafe { charptr(cstring).vstring_with_len(len) }`.
+`unsafe { &char(cstring).vstring() }` or if you know their length already with
+`unsafe { &char(cstring).vstring_with_len(len) }`.
 
 NB: The .vstring() and .vstring_with_len() methods do NOT create a copy of the `cstring`,
 so you should NOT free it after calling the method `.vstring()`.
@@ -3559,9 +3636,9 @@ These can be converted to V strings with `string_from_wide(&u16(cwidestring))` .
 V has these types for easier interoperability with C:
 
 - `voidptr` for C's `void*`,
-- `byteptr` for C's `byte*` and
-- `charptr` for C's `char*`.
-- `&charptr` for C's `char**`
+- `&byte` for C's `byte*` and
+- `&char` for C's `char*`.
+- `&&char` for C's `char**`
 
 To cast a `voidptr` to a V reference, use `user := &User(user_void_ptr)`.
 
@@ -3704,7 +3781,7 @@ If you're using a custom ifdef, then you do need `$if option ? {}` and compile w
 Full list of builtin options:
 | OS                            | Compilers         | Platforms             | Other                     |
 | ---                           | ---               | ---                   | ---                       |
-| `windows`, `linux`, `macos`   | `gcc`, `tinyc`    | `amd64`, `aarch64`    | `debug`, `prod`, `test`   |
+| `windows`, `linux`, `macos`   | `gcc`, `tinyc`    | `amd64`, `arm64`      | `debug`, `prod`, `test`   |
 | `mac`, `darwin`, `ios`,       | `clang`, `mingw`  | `x64`, `x32`          | `js`, `glibc`, `prealloc` |
 | `android`,`mach`, `dragonfly` | `msvc`            | `little_endian`       | `no_bounds_checking`, `freestanding`    |
 | `gnu`, `hpux`, `haiku`, `qnx` | `cplusplus`       | `big_endian`          |
@@ -3804,7 +3881,7 @@ If a file has an environment-specific suffix, it will only be compiled for that 
 
 - `.js.v` => will be used only by the JS backend. These files can contain JS. code.
 - `.c.v` => will be used only by the C backend. These files can contain C. code.
-- `.x64.v` => will be used only by V's x64 backend.
+- `.native.v` => will be used only by V's native backend.
 - `_nix.c.v` => will be used only on Unix systems (non Windows).
 - `_${os}.c.v` => will be used only on the specific `os` system.
 For example, `_windows.c.v` will be used only when compiling on Windows, or with `-os windows`.
@@ -3869,8 +3946,12 @@ that are substituted at compile time:
 - `@LINE` => replaced with the V line number where it appears (as a string).
 - `@COLUMN` => replaced with the column where it appears (as a string).
 - `@VEXE` => replaced with the path to the V compiler
+- `@VEXEROOT`  => will be substituted with the *folder*,
+   where the V executable is (as a string).
 - `@VHASH`  => replaced with the shortened commit hash of the V compiler (as a string).
 - `@VMOD_FILE` => replaced with the contents of the nearest v.mod file (as a string).
+- `@VMODROOT` => will be substituted with the *folder*,
+   where the nearest v.mod file is (as a string).
 
 That allows you to do the following example, useful while debugging/logging/tracing your code:
 ```v

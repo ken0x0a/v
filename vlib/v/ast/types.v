@@ -25,8 +25,8 @@ pub enum Language {
 	js
 	amd64 // aka x86_64
 	i386
-	aarch64 // 64-bit arm
-	aarch32 // 32-bit arm
+	arm64 // 64-bit arm
+	arm32 // 32-bit arm
 	rv64 // 64-bit risc-v
 	rv32 // 32-bit risc-v
 }
@@ -36,11 +36,11 @@ pub fn pref_arch_to_table_language(pref_arch pref.Arch) Language {
 		.amd64 {
 			Language.amd64
 		}
-		.aarch64 {
-			Language.aarch64
+		.arm64 {
+			Language.arm64
 		}
-		.aarch32 {
-			Language.aarch32
+		.arm32 {
+			Language.arm32
 		}
 		.rv64 {
 			Language.rv64
@@ -328,12 +328,6 @@ pub fn (typ Type) is_number() bool {
 	return typ.clear_flags() in ast.number_type_idxs
 }
 
-pub fn (typ Type) is_number_or_literal() bool {
-	res := int(typ) in ast.number_type_idxs
-	eprintln('> is_number_or_literal typ: $typ.debug() | res: $res')
-	return res
-}
-
 [inline]
 pub fn (typ Type) is_string() bool {
 	return typ.idx() in ast.string_type_idxs
@@ -414,6 +408,8 @@ pub const (
 	int_literal_type   = new_type(int_literal_type_idx)
 	thread_type        = new_type(thread_type_idx)
 	error_type         = new_type(error_type_idx)
+	charptr_types      = [charptr_type, new_type(char_type_idx).set_nr_muls(1)]
+	byteptr_types      = [byteptr_type, new_type(byte_type_idx).set_nr_muls(1)]
 )
 
 pub const (
@@ -720,6 +716,7 @@ pub mut:
 	is_typedef     bool // C. [typedef]
 	is_union       bool
 	is_heap        bool
+	is_generic     bool
 	generic_types  []Type
 	concrete_types []Type
 	parent_type    Type
@@ -728,8 +725,8 @@ pub mut:
 // instantiation of a generic struct
 pub struct GenericStructInst {
 pub mut:
-	parent_idx    int // idx of the base generic struct
-	generic_types []Type
+	parent_idx     int    // idx of the base generic struct
+	concrete_types []Type // concrete types, e.g. <int, string>
 }
 
 pub struct Interface {
@@ -759,11 +756,6 @@ mut:
 pub:
 	types []Type
 }
-
-// NB: FExpr here is a actually an ast.Expr .
-// It should always be used by casting to ast.Expr, using ast.fe2ex()/ast.ex2fe()
-// That hack is needed to break an import cycle between v.ast and v.ast .
-// pub type FExpr = byteptr | voidptr
 
 /*
 pub struct Field {

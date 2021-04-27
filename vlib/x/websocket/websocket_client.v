@@ -49,7 +49,7 @@ enum Flag {
 }
 
 // State represents the state of the websocket connection.
-enum State {
+pub enum State {
 	connecting = 0
 	open
 	closing
@@ -250,7 +250,7 @@ pub fn (mut ws Client) write_ptr(bytes &byte, payload_len int, code OPCode) ?int
 			len16 := C.htons(payload_len)
 			header[1] = 126
 			unsafe { C.memcpy(&header[2], &len16, 2) }
-		} else if payload_len > 0xffff && payload_len <= 0xffffffffffffffff {
+		} else if payload_len > 0xffff && payload_len <= 0x7fffffff {
 			len_bytes := htonl64(u64(payload_len))
 			header[1] = 127
 			unsafe { C.memcpy(&header[2], len_bytes.data, 8) }
@@ -270,7 +270,7 @@ pub fn (mut ws Client) write_ptr(bytes &byte, payload_len int, code OPCode) ?int
 			header[5] = masking_key[1]
 			header[6] = masking_key[2]
 			header[7] = masking_key[3]
-		} else if payload_len > 0xffff && payload_len <= 0xffffffffffffffff {
+		} else if payload_len > 0xffff && payload_len <= 0x7fffffff {
 			len64 := htonl64(u64(payload_len))
 			header[1] = (127 | 0x80)
 			unsafe { C.memcpy(&header[2], len64.data, 8) }
@@ -334,14 +334,14 @@ pub fn (mut ws Client) close(code int, message string) ? {
 		ws.reset_state()
 	}
 	ws.set_state(.closing)
-	mut code32 := 0
+	// mut code32 := 0
 	if code > 0 {
 		code_ := C.htons(code)
 		message_len := message.len + 2
 		mut close_frame := []byte{len: message_len}
 		close_frame[0] = byte(code_ & 0xFF)
 		close_frame[1] = byte(code_ >> 8)
-		code32 = (close_frame[0] << 8) + close_frame[1]
+		// code32 = (close_frame[0] << 8) + close_frame[1]
 		for i in 0 .. message.len {
 			close_frame[i + 2] = message[i]
 		}

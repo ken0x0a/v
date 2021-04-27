@@ -215,6 +215,10 @@ fn C.SetHandleInformation(hObject voidptr, dwMask u32, dw_flags u32) bool
 
 fn C.ExpandEnvironmentStringsW(lpSrc &u16, lpDst &u16, nSize u32) u32
 
+fn C.GetComputerNameW(&u16, &u32) bool
+
+fn C.GetUserNameW(&u16, &u32) bool
+
 [trusted]
 fn C.SendMessageTimeout() u32
 
@@ -267,7 +271,7 @@ fn C.wcslen(str &u16) int
 
 fn C.WideCharToMultiByte(codePage u32, dwFlags u32, lpWideCharStr &u16, cchWideChar int, lpMultiByteStr &char, cbMultiByte int, lpDefaultChar &char, lpUsedDefaultChar &int) int
 
-fn C._wstat(path &u16, buffer &C._stat)
+fn C._wstat(path &u16, buffer &C._stat) int
 
 fn C._wrename(oldname &u16, newname &u16) int
 

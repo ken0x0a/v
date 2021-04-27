@@ -7,21 +7,55 @@ import v.cflag
 import v.token
 import v.util
 
+[heap]
 pub struct Table {
 pub mut:
-	type_symbols  []TypeSymbol
-	type_idxs     map[string]int
-	fns           map[string]Fn
-	dumps         map[int]string // needed for efficiently generating all _v_dump_expr_TNAME() functions
-	imports       []string       // List of all imports
-	modules       []string       // Topologically sorted list of all modules registered by the application
-	cflags        []cflag.CFlag
-	redefined_fns []string
-	fn_gen_types  map[string][][]Type // for generic functions
-	cmod_prefix   string // needed for ast.type_to_str(Type) while vfmt; contains `os.`
-	is_fmt        bool
-	used_fns      map[string]bool // filled in by the checker, when pref.skip_unused = true;
-	used_consts   map[string]bool // filled in by the checker, when pref.skip_unused = true;
+	type_symbols     []TypeSymbol
+	type_idxs        map[string]int
+	fns              map[string]Fn
+	dumps            map[int]string // needed for efficiently generating all _v_dump_expr_TNAME() functions
+	imports          []string       // List of all imports
+	modules          []string       // Topologically sorted list of all modules registered by the application
+	cflags           []cflag.CFlag
+	redefined_fns    []string
+	fn_generic_types map[string][][]Type // for generic functions
+	cmod_prefix      string // needed for ast.type_to_str(Type) while vfmt; contains `os.`
+	is_fmt           bool
+	used_fns         map[string]bool // filled in by the checker, when pref.skip_unused = true;
+	used_consts      map[string]bool // filled in by the checker, when pref.skip_unused = true;
+	panic_handler    FnPanicHandler = default_table_panic_handler
+	panic_userdata   voidptr        = voidptr(0) // can be used to pass arbitrary data to panic_handler;
+	panic_npanics    int
+}
+
+[unsafe]
+pub fn (t &Table) free() {
+	unsafe {
+		t.type_symbols.free()
+		t.type_idxs.free()
+		t.fns.free()
+		t.dumps.free()
+		t.imports.free()
+		t.modules.free()
+		t.cflags.free()
+		t.redefined_fns.free()
+		t.fn_generic_types.free()
+		t.cmod_prefix.free()
+		t.used_fns.free()
+		t.used_consts.free()
+	}
+}
+
+pub type FnPanicHandler = fn (&Table, string)
+
+fn default_table_panic_handler(t &Table, message string) {
+	panic(message)
+}
+
+pub fn (t &Table) panic(message string) {
+	mut mt := unsafe { &Table(t) }
+	mt.panic_npanics++
+	t.panic_handler(t, message)
 }
 
 pub struct Fn {
@@ -163,9 +197,7 @@ pub fn (t &Table) is_same_method(f &Fn, func &Fn) string {
 }
 
 pub fn (t &Table) find_fn(name string) ?Fn {
-	f := t.fns[name]
-	if f.name.str != 0 {
-		// TODO
+	if f := t.fns[name] {
 		return f
 	}
 	return none
@@ -191,7 +223,7 @@ pub fn (mut t TypeSymbol) register_method(new_fn Fn) int {
 
 pub fn (t &Table) register_aggregate_method(mut sym TypeSymbol, name string) ?Fn {
 	if sym.kind != .aggregate {
-		panic('Unexpected type symbol: $sym.kind')
+		t.panic('Unexpected type symbol: $sym.kind')
 	}
 	agg_info := sym.info as Aggregate
 	// an aggregate always has at least 2 types
@@ -245,7 +277,7 @@ pub fn (t &Table) type_find_method(s &TypeSymbol, name string) ?Fn {
 
 fn (t &Table) register_aggregate_field(mut sym TypeSymbol, name string) ?StructField {
 	if sym.kind != .aggregate {
-		panic('Unexpected type symbol: $sym.kind')
+		t.panic('Unexpected type symbol: $sym.kind')
 	}
 	mut agg_info := sym.info as Aggregate
 	// an aggregate always has at least 2 types
@@ -398,6 +430,15 @@ pub fn (t &Table) find_type(name string) ?TypeSymbol {
 	return none
 }
 
+pub const invalid_type_symbol = &TypeSymbol{
+	parent_idx: -1
+	language: .v
+	mod: 'builtin'
+	kind: .placeholder
+	name: 'InvalidType'
+	cname: 'InvalidType'
+}
+
 [inline]
 pub fn (t &Table) get_type_symbol(typ Type) &TypeSymbol {
 	// println('get_type_symbol $typ')
@@ -406,8 +447,9 @@ pub fn (t &Table) get_type_symbol(typ Type) &TypeSymbol {
 		return unsafe { &t.type_symbols[idx] }
 	}
 	// this should never happen
-	panic('get_type_symbol: invalid type (typ=$typ idx=$idx). Compiler bug. This should never happen. Please create a GitHub issue.
+	t.panic('get_type_symbol: invalid type (typ=$typ idx=$idx). Compiler bug. This should never happen. Please report the bug using `v bug file.v`.
 ')
+	return ast.invalid_type_symbol
 }
 
 // get_final_type_symbol follows aliases until it gets to a "real" Type
@@ -423,7 +465,8 @@ pub fn (t &Table) get_final_type_symbol(typ Type) &TypeSymbol {
 		return unsafe { &t.type_symbols[idx] }
 	}
 	// this should never happen
-	panic('get_final_type_symbol: invalid type (typ=$typ idx=$idx). Compiler bug. This should never happen. Please create a GitHub issue.')
+	t.panic('get_final_type_symbol: invalid type (typ=$typ idx=$idx). Compiler bug. This should never happen. Please report the bug using `v bug file.v`.')
+	return ast.invalid_type_symbol
 }
 
 [inline]
@@ -859,13 +902,13 @@ pub fn (t &Table) mktyp(typ Type) Type {
 	}
 }
 
-pub fn (mut t Table) register_fn_gen_type(fn_name string, types []Type) {
-	mut a := t.fn_gen_types[fn_name]
+pub fn (mut t Table) register_fn_generic_types(fn_name string, types []Type) {
+	mut a := t.fn_generic_types[fn_name]
 	if types in a {
 		return
 	}
 	a << types
-	t.fn_gen_types[fn_name] = a
+	t.fn_generic_types[fn_name] = a
 }
 
 // TODO: there is a bug when casting sumtype the other way if its pointer
@@ -938,26 +981,22 @@ pub fn (mut t Table) bitsize_to_type(bit_size int) Type {
 		}
 		else {
 			if bit_size % 8 != 0 { // there is no way to do `i2131(32)` so this should never be reached
-				panic('compiler bug: bitsizes must be multiples of 8')
+				t.panic('compiler bug: bitsizes must be multiples of 8')
 			}
 			return new_type(t.find_or_register_array_fixed(byte_type, bit_size / 8))
 		}
 	}
 }
 
-// resolve_generic_by_names resolves generics to real types T => int.
+// resolve_generic_to_concrete resolves generics to real types T => int.
 // Even map[string]map[string]T can be resolved.
 // This is used for resolving the generic return type of CallExpr white `unwrap_generic` is used to resolve generic usage in FnDecl.
-pub fn (mut t Table) resolve_generic_by_names(generic_type Type, generic_names []string, generic_types []Type) ?Type {
+pub fn (mut t Table) resolve_generic_to_concrete(generic_type Type, generic_names []string, concrete_types []Type, is_inst bool) ?Type {
 	mut sym := t.get_type_symbol(generic_type)
 	if sym.name in generic_names {
 		index := generic_names.index(sym.name)
-		mut typ := generic_types[index]
-		typ = typ.set_nr_muls(generic_type.nr_muls())
-		if generic_type.has_flag(.optional) {
-			typ = typ.set_flag(.optional)
-		}
-		return typ
+		typ := concrete_types[index]
+		return typ.derive(generic_type).clear_flag(.generic)
 	} else if sym.kind == .array {
 		info := sym.info as Array
 		mut elem_type := info.elem_type
@@ -968,23 +1007,27 @@ pub fn (mut t Table) resolve_generic_by_names(generic_type Type, generic_names [
 			elem_sym = t.get_type_symbol(elem_type)
 			dims++
 		}
-		if typ := t.resolve_generic_by_names(elem_type, generic_names, generic_types) {
+		if typ := t.resolve_generic_to_concrete(elem_type, generic_names, concrete_types,
+			is_inst)
+		{
 			idx := t.find_or_register_array_with_dims(typ, dims)
-			array_typ := new_type(idx)
-			return array_typ
+			return new_type(idx).derive(generic_type).clear_flag(.generic)
 		}
 	} else if sym.kind == .chan {
 		info := sym.info as Chan
-		if typ := t.resolve_generic_by_names(info.elem_type, generic_names, generic_types) {
+		if typ := t.resolve_generic_to_concrete(info.elem_type, generic_names, concrete_types,
+			is_inst)
+		{
 			idx := t.find_or_register_chan(typ, typ.nr_muls() > 0)
-			chan_typ := new_type(idx)
-			return chan_typ
+			return new_type(idx).derive(generic_type).clear_flag(.generic)
 		}
 	} else if mut sym.info is MultiReturn {
 		mut types := []Type{}
 		mut type_changed := false
 		for ret_type in sym.info.types {
-			if typ := t.resolve_generic_by_names(ret_type, generic_names, generic_types) {
+			if typ := t.resolve_generic_to_concrete(ret_type, generic_names, concrete_types,
+				is_inst)
+			{
 				types << typ
 				type_changed = true
 			} else {
@@ -993,92 +1036,44 @@ pub fn (mut t Table) resolve_generic_by_names(generic_type Type, generic_names [
 		}
 		if type_changed {
 			idx := t.find_or_register_multi_return(types)
-			typ := new_type(idx)
-			return typ
+			return new_type(idx).derive(generic_type).clear_flag(.generic)
 		}
 	} else if mut sym.info is Map {
 		mut type_changed := false
 		mut unwrapped_key_type := sym.info.key_type
 		mut unwrapped_value_type := sym.info.value_type
-		if typ := t.resolve_generic_by_names(sym.info.key_type, generic_names, generic_types) {
+		if typ := t.resolve_generic_to_concrete(sym.info.key_type, generic_names, concrete_types,
+			is_inst)
+		{
 			unwrapped_key_type = typ
 			type_changed = true
 		}
-		if typ := t.resolve_generic_by_names(sym.info.value_type, generic_names, generic_types) {
+		if typ := t.resolve_generic_to_concrete(sym.info.value_type, generic_names, concrete_types,
+			is_inst)
+		{
 			unwrapped_value_type = typ
 			type_changed = true
 		}
 		if type_changed {
 			idx := t.find_or_register_map(unwrapped_key_type, unwrapped_value_type)
-			return new_type(idx)
+			return new_type(idx).derive(generic_type).clear_flag(.generic)
 		}
-	}
-	return none
-}
-
-// resolve_generic_by_types resolves generics to real types T => int.
-// Even map[string]map[string]T can be resolved.
-// This is used for resolving the generic return type of CallExpr white `unwrap_generic` is used to resolve generic usage in FnDecl.
-pub fn (mut t Table) resolve_generic_by_types(generic_type Type, from_types []Type, to_types []Type) ?Type {
-	mut sym := t.get_type_symbol(generic_type)
-	if generic_type in from_types {
-		index := from_types.index(generic_type)
-		mut typ := to_types[index]
-		typ = typ.set_nr_muls(generic_type.nr_muls())
-		if generic_type.has_flag(.optional) {
-			typ = typ.set_flag(.optional)
-		}
-		return typ
-	} else if sym.kind == .array {
-		info := sym.info as Array
-		mut elem_type := info.elem_type
-		mut elem_sym := t.get_type_symbol(elem_type)
-		mut dims := 1
-		for mut elem_sym.info is Array {
-			elem_type = elem_sym.info.elem_type
-			elem_sym = t.get_type_symbol(elem_type)
-			dims++
-		}
-		if typ := t.resolve_generic_by_types(elem_type, from_types, to_types) {
-			idx := t.find_or_register_array_with_dims(typ, dims)
-			return new_type(idx)
-		}
-	} else if sym.kind == .chan {
-		info := sym.info as Chan
-		if typ := t.resolve_generic_by_types(info.elem_type, from_types, to_types) {
-			idx := t.find_or_register_chan(typ, typ.nr_muls() > 0)
-			return new_type(idx)
-		}
-	} else if mut sym.info is MultiReturn {
-		mut types := []Type{}
-		mut type_changed := false
-		for ret_type in sym.info.types {
-			if typ := t.resolve_generic_by_types(ret_type, from_types, to_types) {
-				types << typ
-				type_changed = true
-			} else {
-				types << ret_type
+	} else if mut sym.info is Struct {
+		if sym.info.is_generic && is_inst {
+			mut nrt := '$sym.name<'
+			for i in 0 .. concrete_types.len {
+				gts := t.get_type_symbol(concrete_types[i])
+				nrt += gts.name
+				if i != concrete_types.len - 1 {
+					nrt += ','
+				}
 			}
-		}
-		if type_changed {
-			idx := t.find_or_register_multi_return(types)
-			return new_type(idx)
-		}
-	} else if mut sym.info is Map {
-		mut type_changed := false
-		mut unwrapped_key_type := sym.info.key_type
-		mut unwrapped_value_type := sym.info.value_type
-		if typ := t.resolve_generic_by_types(sym.info.key_type, from_types, to_types) {
-			unwrapped_key_type = typ
-			type_changed = true
-		}
-		if typ := t.resolve_generic_by_types(sym.info.value_type, from_types, to_types) {
-			unwrapped_value_type = typ
-			type_changed = true
-		}
-		if type_changed {
-			idx := t.find_or_register_map(unwrapped_key_type, unwrapped_value_type)
-			return new_type(idx)
+			nrt += '>'
+			mut idx := t.type_idxs[nrt]
+			if idx == 0 {
+				idx = t.add_placeholder_type(nrt, .v)
+			}
+			return new_type(idx).derive(generic_type).clear_flag(.generic)
 		}
 	}
 	return none
@@ -1086,8 +1081,7 @@ pub fn (mut t Table) resolve_generic_by_types(generic_type Type, from_types []Ty
 
 // generic struct instantiations to concrete types
 pub fn (mut t Table) generic_struct_insts_to_concrete() {
-	for idx, _ in t.type_symbols {
-		mut typ := unsafe { &t.type_symbols[idx] }
+	for mut typ in t.type_symbols {
 		if typ.kind == .generic_struct_inst {
 			info := typ.info as GenericStructInst
 			parent := t.type_symbols[info.parent_idx]
@@ -1097,16 +1091,17 @@ pub fn (mut t Table) generic_struct_insts_to_concrete() {
 			}
 			mut parent_info := parent.info as Struct
 			mut fields := parent_info.fields.clone()
-			if parent_info.generic_types.len == info.generic_types.len {
+			if parent_info.generic_types.len == info.concrete_types.len {
+				generic_names := parent_info.generic_types.map(t.get_type_symbol(it).name)
 				for i in 0 .. fields.len {
-					if t_typ := t.resolve_generic_by_types(fields[i].typ, parent_info.generic_types,
-						info.generic_types)
+					if t_typ := t.resolve_generic_to_concrete(fields[i].typ, generic_names,
+						info.concrete_types, true)
 					{
 						fields[i].typ = t_typ
 					}
 				}
-				parent_info.generic_types = []
-				parent_info.concrete_types = info.generic_types.clone()
+				parent_info.is_generic = false
+				parent_info.concrete_types = info.concrete_types.clone()
 				parent_info.fields = fields
 				parent_info.parent_type = new_type(info.parent_idx).set_flag(.generic)
 				typ.is_public = true

@@ -79,11 +79,11 @@ struct MultiplePathAttributesError {
 	code int
 }
 
-// declaring init_once in your App struct is optional
-pub fn (ctx Context) init_once() {}
+// declaring init_server in your App struct is optional
+pub fn (ctx Context) init_server() {}
 
-// declaring init in your App struct is optional
-pub fn (ctx Context) init() {}
+// declaring before_request in your App struct is optional
+pub fn (ctx Context) before_request() {}
 
 pub struct Cookie {
 	name      string
@@ -295,7 +295,7 @@ pub fn run_app<T>(mut app T, port int) {
 	app.Context = Context{
 		conn: 0
 	}
-	app.init_once()
+	app.init_server()
 	$for method in T.methods {
 		$if method.return_type is Result {
 			// check routes for validity
@@ -321,7 +321,10 @@ fn handle_conn<T>(mut conn net.TcpConn, mut app T) {
 	}
 	page_gen_start := time.ticks()
 	req := parse_request(mut reader) or {
-		eprintln('error parsing request: $err')
+		// Prevents errors from being thrown when BufferedReader is empty
+		if '$err' != 'none' {
+			eprintln('error parsing request: $err')
+		}
 		return
 	}
 	app.Context = Context{
@@ -333,8 +336,9 @@ fn handle_conn<T>(mut conn net.TcpConn, mut app T) {
 		page_gen_start: page_gen_start
 	}
 	if req.method in vweb.methods_with_form {
-		if 'multipart/form-data' in req.header.values(.content_type) {
-			boundary := req.header.values(.content_type).filter(it.starts_with('boundary='))
+		ct := req.header.get(.content_type) or { '' }.split(';').map(it.trim_left(' \t'))
+		if 'multipart/form-data' in ct {
+			boundary := ct.filter(it.starts_with('boundary='))
 			if boundary.len != 1 {
 				send_string(mut conn, vweb.http_400) or {}
 				return
@@ -364,7 +368,7 @@ fn handle_conn<T>(mut conn net.TcpConn, mut app T) {
 		return
 	}
 
-	app.init()
+	app.before_request()
 	// Call the right action
 	$if debug {
 		println('route matching...')

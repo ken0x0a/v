@@ -171,7 +171,7 @@ pub fn (mut c Checker) check_matching_function_symbols(got_type_sym &ast.TypeSym
 		if exp_arg_is_ptr != got_arg_is_ptr {
 			exp_arg_pointedness := if exp_arg_is_ptr { 'a pointer' } else { 'NOT a pointer' }
 			got_arg_pointedness := if got_arg_is_ptr { 'a pointer' } else { 'NOT a pointer' }
-			c.add_error_detail("`$exp_fn.name`\'s expected fn argument: `$exp_arg.name` is $exp_arg_pointedness, but the passed fn argument: `$got_arg.name` is $got_arg_pointedness")
+			c.add_error_detail('`$exp_fn.name`\'s expected fn argument: `$exp_arg.name` is $exp_arg_pointedness, but the passed fn argument: `$got_arg.name` is $got_arg_pointedness')
 			return false
 		}
 		if !c.check_basic(got_arg.typ, exp_arg.typ) {
@@ -475,24 +475,26 @@ pub fn (mut c Checker) string_inter_lit(mut node ast.StringInterLiteral) ast.Typ
 	return ast.string_type
 }
 
-pub fn (mut c Checker) infer_fn_types(f ast.Fn, mut call_expr ast.CallExpr) {
+pub fn (mut c Checker) infer_fn_generic_types(f ast.Fn, mut call_expr ast.CallExpr) {
 	mut inferred_types := []ast.Type{}
 	for gi, gt_name in f.generic_names {
 		// skip known types
-		if gi < call_expr.generic_types.len {
-			inferred_types << call_expr.generic_types[gi]
+		if gi < call_expr.concrete_types.len {
+			inferred_types << call_expr.concrete_types[gi]
 			continue
 		}
 		mut typ := ast.void_type
 		for i, param in f.params {
 			mut to_set := ast.void_type
-			// resolve generic struct receiver (TODO: multi generic struct)
+			// resolve generic struct receiver
 			if i == 0 && call_expr.is_method && param.typ.has_flag(.generic) {
 				sym := c.table.get_type_symbol(call_expr.receiver_type)
 				if sym.kind == .struct_ {
 					info := sym.info as ast.Struct
-					if info.concrete_types.len > 0 {
-						typ = info.concrete_types[0]
+					receiver_generic_names := info.generic_types.map(c.table.get_type_symbol(it).name)
+					if gt_name in receiver_generic_names {
+						idx := receiver_generic_names.index(gt_name)
+						typ = info.concrete_types[idx]
 					}
 				}
 			}
@@ -507,6 +509,10 @@ pub fn (mut c Checker) infer_fn_types(f ast.Fn, mut call_expr ast.CallExpr) {
 				to_set = c.table.mktyp(arg.typ)
 				if arg.expr.is_auto_deref_var() {
 					to_set = to_set.deref()
+				}
+				// resolve &T &&T ...
+				if param.typ.nr_muls() > 0 && to_set.nr_muls() > 0 {
+					to_set = to_set.set_nr_muls(0)
 				}
 				// If the parent fn param is a generic too
 				if to_set.has_flag(.generic) {
@@ -563,7 +569,7 @@ pub fn (mut c Checker) infer_fn_types(f ast.Fn, mut call_expr ast.CallExpr) {
 			println('inferred `$f.name<$s>`')
 		}
 		inferred_types << typ
-		call_expr.generic_types << typ
+		call_expr.concrete_types << typ
 	}
-	c.table.register_fn_gen_type(f.name, inferred_types)
+	c.table.register_fn_generic_types(f.name, inferred_types)
 }

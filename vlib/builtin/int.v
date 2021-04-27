@@ -3,6 +3,8 @@
 // that can be found in the LICENSE file.
 module builtin
 
+type u8 = byte
+
 /*
 // old function for reference
 pub fn (nn int) str1() string {
@@ -30,7 +32,7 @@ pub fn (nn int) str1() string {
 		buf[max - len - 1] = `-`
 		len++
 	}
-	buf[max] = `\0`
+	buf[max] = 0
 	return tos(buf + max - len, len)
 }
 */
@@ -77,15 +79,19 @@ fn (nn int) str_l(max int) string {
 	}
 	mut index := max
 	unsafe {
-		buf[index--] = `\0`
+		buf[index] = 0
+		index--
 	}
 	for n > 0 {
 		n1 := int(n / 100)
 		d = ((int(n) - (n1 * 100)) << 1)
 		n = n1
 		unsafe {
-			buf[index--] = digit_pairs.str[d++]
-			buf[index--] = digit_pairs.str[d]
+			buf[index] = digit_pairs.str[d]
+			index--
+			d++
+			buf[index] = digit_pairs.str[d]
+			index--
 		}
 	}
 	index++
@@ -143,15 +149,19 @@ pub fn (nn u32) str() string {
 	mut buf := unsafe { malloc(max + 1) }
 	mut index := max
 	unsafe {
-		buf[index--] = `\0`
+		buf[index] = 0
+		index--
 	}
 	for n > 0 {
 		n1 := n / u32(100)
 		d = ((n - (n1 * u32(100))) << u32(1))
 		n = n1
 		unsafe {
-			buf[index--] = digit_pairs[d++]
-			buf[index--] = digit_pairs[d]
+			buf[index] = digit_pairs[d]
+			index--
+			d++
+			buf[index] = digit_pairs[d]
+			index--
 		}
 	}
 	index++
@@ -189,15 +199,19 @@ pub fn (nn i64) str() string {
 	}
 	mut index := max
 	unsafe {
-		buf[index--] = `\0`
+		buf[index] = 0
+		index--
 	}
 	for n > 0 {
 		n1 := n / i64(100)
 		d = ((n - (n1 * i64(100))) << i64(1))
 		n = n1
 		unsafe {
-			buf[index--] = digit_pairs[d++]
-			buf[index--] = digit_pairs[d]
+			buf[index] = digit_pairs[d]
+			index--
+			d++
+			buf[index] = digit_pairs[d]
+			index--
 		}
 	}
 	index++
@@ -231,15 +245,19 @@ pub fn (nn u64) str() string {
 	mut buf := vcalloc(max + 1)
 	mut index := max
 	unsafe {
-		buf[index--] = `\0`
+		buf[index] = 0
+		index--
 	}
 	for n > 0 {
 		n1 := n / 100
 		d = ((n - (n1 * 100)) << 1)
 		n = n1
 		unsafe {
-			buf[index--] = digit_pairs[d++]
-			buf[index--] = digit_pairs[d]
+			buf[index] = digit_pairs[d]
+			index--
+			d++
+			buf[index] = digit_pairs[d]
+			index--
 		}
 	}
 	index++
@@ -279,7 +297,7 @@ pub fn (n int) hex1() string {
 fn u64_to_hex(nn u64, len byte) string {
 	mut n := nn
 	mut buf := [256]byte{}
-	buf[len] = `\0`
+	buf[len] = 0
 	mut i := 0
 	for i = len - 1; i >= 0; i-- {
 		d := byte(n & 0xF)
@@ -295,7 +313,7 @@ fn u64_to_hex(nn u64, len byte) string {
 fn u64_to_hex_no_leading_zeros(nn u64, len byte) string {
 	mut n := nn
 	mut buf := [256]byte{}
-	buf[len] = `\0`
+	buf[len] = 0
 	mut i := 0
 	for i = len - 1; i >= 0; i-- {
 		d := byte(n & 0xF)
@@ -452,7 +470,7 @@ pub fn (b byte) ascii_str() string {
 	}
 	unsafe {
 		str.str[0] = b
-		str.str[1] = `\0`
+		str.str[1] = 0
 	}
 	// println(str)
 	return str
@@ -470,6 +488,7 @@ pub fn (b byte) str_escaped() string {
 		11 { r'`\v`' }
 		12 { r'`\f`' }
 		13 { r'`\r`' }
+		27 { r'`\e`' }
 		32...126 { b.ascii_str() }
 		else { '0x' + b.hex() }
 	}

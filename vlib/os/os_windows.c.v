@@ -2,6 +2,7 @@ module os
 
 import strings
 
+#flag windows -l advapi32
 #include <process.h>
 
 pub const (
@@ -188,7 +189,7 @@ const (
 const (
 	sublang_neutral = 0x00
 	sublang_default = 0x01
-	lang_neutral    = (sublang_neutral)
+	lang_neutral    = sublang_neutral
 )
 
 // Ref - https://docs.microsoft.com/en-us/windows/win32/debug/system-error-codes--12000-15999-
@@ -376,15 +377,36 @@ pub fn debugger_present() bool {
 }
 
 pub fn uname() Uname {
-	// TODO: implement `os.uname()` for windows
-	unknown := 'unknown'
+	sys_and_ver := execute('cmd /c ver').output.split('[')
+	nodename := hostname()
+	machine := getenv('PROCESSOR_ARCHITECTURE')
 	return Uname{
-		sysname: unknown
-		nodename: unknown
-		release: unknown
-		version: unknown
-		machine: unknown
+		sysname: sys_and_ver[0].trim_space()
+		nodename: nodename
+		release: sys_and_ver[1].replace(']', '')
+		version: sys_and_ver[0] + '[' + sys_and_ver[1]
+		machine: machine
 	}
+}
+
+pub fn hostname() string {
+	hostname := [255]u16{}
+	size := u32(255)
+	res := C.GetComputerNameW(&hostname[0], &size)
+	if !res {
+		return error(get_error_msg(int(C.GetLastError())))
+	}
+	return unsafe { string_from_wide(&hostname[0]) }
+}
+
+pub fn loginname() string {
+	loginname := [255]u16{}
+	size := u32(255)
+	res := C.GetUserNameW(&loginname[0], &size)
+	if !res {
+		return error(get_error_msg(int(C.GetLastError())))
+	}
+	return unsafe { string_from_wide(&loginname[0]) }
 }
 
 // `is_writable_folder` - `folder` exists and is writable to the process
