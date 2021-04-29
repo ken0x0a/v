@@ -580,12 +580,7 @@ pub fn (t &Table) array_cname(elem_type Type) string {
 pub fn (t &Table) array_fixed_name(elem_type Type, size int, size_expr Expr) string {
 	elem_type_sym := t.get_type_symbol(elem_type)
 	ptr := if elem_type.is_ptr() { '&'.repeat(elem_type.nr_muls()) } else { '' }
-	mut size_str := size.str()
-	if t.is_fmt {
-		if size_expr is Ident {
-			size_str = size_expr.name
-		}
-	}
+	size_str := if size_expr is EmptyExpr { size.str() } else { size_expr.str() }
 	return '[$size_str]$ptr$elem_type_sym.name'
 }
 
@@ -783,7 +778,6 @@ pub fn (mut t Table) find_or_register_array_fixed(elem_type Type, size int, size
 			elem_type: elem_type
 			size: size
 			size_expr: size_expr
-			expr: size_expr
 		}
 	}
 	return t.register_type_symbol(array_fixed_type)
