@@ -34,7 +34,7 @@ mut:
 	sin_port   int
 	sin_addr   C.in_addr
 }
-
+	
 struct C.sockaddr_storage {}
 
 fn C.atoi() int
@@ -178,7 +178,7 @@ fn accept_callback(loop &C.picoev_loop, fd int, events int, cb_arg voidptr) {
 }
 
 pub fn new(port int, cb voidptr) &Picoev {
-	fd := C.socket(net.SocketFamily.inet, net.SocketType.tcp, 0)
+	fd := C.socket(net.AddrFamily.ip, net.SocketType.tcp, 0)
 	assert fd != -1
 	flag := 1
 	assert C.setsockopt(fd, C.SOL_SOCKET, C.SO_REUSEADDR, &flag, sizeof(int)) == 0
@@ -195,7 +195,7 @@ pub fn new(port int, cb voidptr) &Picoev {
 	addr.sin_port = C.htons(port)
 	addr.sin_addr.s_addr = C.htonl(C.INADDR_ANY)
 	size := 16 // sizeof(C.sockaddr_in)
-	bind_res := C.bind(fd, &addr, size)
+	bind_res := C.bind(fd, unsafe { &net.Addr( &addr ) }, size)
 	assert bind_res == 0
 	listen_res := C.listen(fd, C.SOMAXCONN)
 	assert listen_res == 0
