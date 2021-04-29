@@ -11,6 +11,9 @@ pub fn (mut p Parser) parse_array_type() ast.Type {
 	// fixed array
 	if p.tok.kind in [.number, .name] {
 		mut fixed_size := 0
+		if p.pref.is_fmt {
+			fixed_size = 987654321
+		}
 		size_expr := p.expr(0)
 		match size_expr {
 			ast.IntegerLiteral {
@@ -27,7 +30,10 @@ pub fn (mut p Parser) parse_array_type() ast.Type {
 						}
 					}
 				} else {
-					p.error_with_pos('non-constant array bound `$size_expr.name`', size_expr.pos)
+					if !p.pref.is_fmt {
+						p.error_with_pos('non-constant array bound `$size_expr.name`',
+							size_expr.pos)
+					}
 				}
 			}
 			else {
@@ -44,7 +50,7 @@ pub fn (mut p Parser) parse_array_type() ast.Type {
 			p.error_with_pos('fixed size cannot be zero or negative', size_expr.position())
 		}
 		// sym := p.table.get_type_symbol(elem_type)
-		idx := p.table.find_or_register_array_fixed(elem_type, fixed_size)
+		idx := p.table.find_or_register_array_fixed(elem_type, fixed_size, size_expr)
 		if elem_type.has_flag(.generic) {
 			return ast.new_type(idx).set_flag(.generic)
 		}

@@ -791,7 +791,8 @@ pub mut:
 
 pub struct ArrayFixed {
 pub:
-	size int
+	size      int
+	size_expr Expr
 pub mut:
 	elem_type Type
 }
@@ -874,7 +875,11 @@ pub fn (t &Table) type_to_str_using_aliases(typ Type, import_aliases map[string]
 		.array_fixed {
 			info := sym.info as ArrayFixed
 			elem_str := t.type_to_str_using_aliases(info.elem_type, import_aliases)
-			res = '[$info.size]$elem_str'
+			if info.size == 987654321 {
+				res = '[$info.size_expr]$elem_str'
+			} else {
+				res = '[$info.size]$elem_str'
+			}
 		}
 		.chan {
 			// TODO currently the `chan` struct in builtin is not considered a struct but a chan
