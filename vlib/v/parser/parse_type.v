@@ -11,33 +11,30 @@ pub fn (mut p Parser) parse_array_type() ast.Type {
 	// fixed array
 	if p.tok.kind in [.number, .name] {
 		mut fixed_size := 0
+		size_expr := p.expr(0)
 		if p.pref.is_fmt {
 			fixed_size = 987654321
-		}
-		size_expr := p.expr(0)
-		match size_expr {
-			ast.IntegerLiteral {
-				fixed_size = size_expr.val.int()
-			}
-			ast.Ident {
-				if const_field := p.global_scope.find_const('${p.mod}.$size_expr.name') {
-					if const_field.expr is ast.IntegerLiteral {
-						fixed_size = const_field.expr.val.int()
-					} else {
-						if !p.pref.is_fmt {
+		} else {
+			match size_expr {
+				ast.IntegerLiteral {
+					fixed_size = size_expr.val.int()
+				}
+				ast.Ident {
+					if const_field := p.global_scope.find_const('${p.mod}.$size_expr.name') {
+						if const_field.expr is ast.IntegerLiteral {
+							fixed_size = const_field.expr.val.int()
+						} else {
 							p.error_with_pos('non-constant array bound `$size_expr.name`',
 								size_expr.pos)
 						}
-					}
-				} else {
-					if !p.pref.is_fmt {
+					} else {
 						p.error_with_pos('non-constant array bound `$size_expr.name`',
 							size_expr.pos)
 					}
 				}
-			}
-			else {
-				p.error('expecting `int` for fixed size')
+				else {
+					p.error('expecting `int` for fixed size')
+				}
 			}
 		}
 		p.check(.rsbr)
