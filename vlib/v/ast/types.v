@@ -792,7 +792,8 @@ pub mut:
 pub struct ArrayFixed {
 pub:
 	size      int
-	size_expr Expr
+	size_expr Expr // TODO, remove/merge with expr which does the same
+	expr      Expr // used by fmt for e.g. ´[my_const]byte´
 pub mut:
 	elem_type Type
 }

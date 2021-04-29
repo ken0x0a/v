@@ -577,10 +577,16 @@ pub fn (t &Table) array_cname(elem_type Type) string {
 // array_fixed_source_name generates the original name for the v source.
 // e. g. [16][8]int
 [inline]
-pub fn (t &Table) array_fixed_name(elem_type Type, size int) string {
+pub fn (t &Table) array_fixed_name(elem_type Type, size int, size_expr Expr) string {
 	elem_type_sym := t.get_type_symbol(elem_type)
 	ptr := if elem_type.is_ptr() { '&'.repeat(elem_type.nr_muls()) } else { '' }
-	return '[$size]$ptr$elem_type_sym.name'
+	mut size_str := size.str()
+	if t.is_fmt {
+		if size_expr is Ident {
+			size_str = size_expr.name
+		}
+	}
+	return '[$size_str]$ptr$elem_type_sym.name'
 }
 
 [inline]
@@ -761,7 +767,7 @@ pub fn (mut t Table) find_or_register_array_with_dims(elem_type Type, nr_dims in
 }
 
 pub fn (mut t Table) find_or_register_array_fixed(elem_type Type, size int, size_expr Expr) int {
-	name := t.array_fixed_name(elem_type, size)
+	name := t.array_fixed_name(elem_type, size, size_expr)
 	cname := t.array_fixed_cname(elem_type, size)
 	// existing
 	existing_idx := t.type_idxs[name]
@@ -777,6 +783,7 @@ pub fn (mut t Table) find_or_register_array_fixed(elem_type Type, size int, size
 			elem_type: elem_type
 			size: size
 			size_expr: size_expr
+			expr: size_expr
 		}
 	}
 	return t.register_type_symbol(array_fixed_type)
@@ -903,7 +910,7 @@ pub fn (t &Table) mktyp(typ Type) Type {
 	}
 }
 
-pub fn (mut t Table) register_fn_generic_types(fn_name string, types []Type) {
+pub fn (mut t Table) register_fn_concrete_types(fn_name string, types []Type) {
 	mut a := t.fn_generic_types[fn_name]
 	if types in a {
 		return

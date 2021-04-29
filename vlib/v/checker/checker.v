@@ -86,6 +86,7 @@ mut:
 	using_new_err_struct bool
 	inside_selector_expr bool
 	inside_println_arg   bool
+	inside_decl_rhs      bool
 }
 
 pub fn new_checker(table &ast.Table, pref &pref.Preferences) Checker {
@@ -349,6 +350,9 @@ pub fn (mut c Checker) sum_type_decl(node ast.SumTypeDecl) {
 		} else if sym.kind == .interface_ {
 			c.error('sum type cannot hold an interface', variant.pos)
 		}
+		if sym.name.trim_prefix(sym.mod + '.') == node.name {
+			c.error('sum type cannot hold itself', variant.pos)
+		}
 		names_used << sym.name
 	}
 }
@@ -515,7 +519,8 @@ pub fn (mut c Checker) struct_init(mut struct_init ast.StructInit) ast.Type {
 			c.error('struct `$type_sym.name` is declared with a `[noinit]` attribute, so ' +
 				'it cannot be initialized with `$type_sym.name{}`', struct_init.pos)
 		}
-		if info.is_heap && !c.inside_ref_lit && !c.inside_unsafe && !struct_init.typ.is_ptr() {
+		if info.is_heap && c.inside_decl_rhs && !c.inside_ref_lit && !c.inside_unsafe
+			&& !struct_init.typ.is_ptr() {
 			c.error('`$type_sym.name` type can only be used as a reference `&$type_sym.name` or inside a `struct` reference',
 				struct_init.pos)
 		}
@@ -1107,7 +1112,8 @@ pub fn (mut c Checker) infix_expr(mut infix_expr ast.InfixExpr) ast.Type {
 		c.error('unwrapped optional cannot be used in an infix expression', left_right_pos)
 	}
 	// Dual sides check (compatibility check)
-	if !c.symmetric_check(right_type, left_type) && !c.pref.translated {
+	if !(c.symmetric_check(left_type, right_type) && c.symmetric_check(right_type, left_type))
+		&& !c.pref.translated {
 		// for type-unresolved consts
 		if left_type == ast.void_type || right_type == ast.void_type {
 			return ast.void_type
@@ -1521,7 +1527,7 @@ pub fn (mut c Checker) method_call(mut call_expr ast.CallExpr) ast.Type {
 		}
 	}
 	if has_generic {
-		c.table.register_fn_generic_types(call_expr.name, concrete_types)
+		c.table.register_fn_concrete_types(call_expr.name, concrete_types)
 	}
 	// TODO: remove this for actual methods, use only for compiler magic
 	// FIXME: Argument count != 1 will break these
@@ -1986,9 +1992,9 @@ pub fn (mut c Checker) fn_call(mut call_expr ast.CallExpr) ast.Type {
 	if has_generic {
 		if c.mod != '' && !fn_name.starts_with('${c.mod}.') {
 			// Need to prepend the module when adding a generic type to a function
-			c.table.register_fn_generic_types(c.mod + '.' + fn_name, concrete_types)
+			c.table.register_fn_concrete_types(c.mod + '.' + fn_name, concrete_types)
 		} else {
-			c.table.register_fn_generic_types(fn_name, concrete_types)
+			c.table.register_fn_concrete_types(fn_name, concrete_types)
 		}
 	}
 	if fn_name == 'json.encode' {
@@ -2979,7 +2985,9 @@ pub fn (mut c Checker) assign_stmt(mut assign_stmt ast.AssignStmt) {
 					c.inside_ref_lit = c.inside_ref_lit || left.info.share == .shared_t
 				}
 			}
+			c.inside_decl_rhs = is_decl
 			right_type := c.expr(assign_stmt.right[i])
+			c.inside_decl_rhs = false
 			c.inside_ref_lit = old_inside_ref_lit
 			if assign_stmt.right_types.len == i {
 				assign_stmt.right_types << c.check_expr_opt_call(assign_stmt.right[i],
@@ -5897,7 +5905,9 @@ pub fn (mut c Checker) mark_as_referenced(mut node ast.Expr) {
 			}
 		}
 		ast.SelectorExpr {
-			c.mark_as_referenced(mut &node.expr)
+			if !node.expr_type.is_ptr() {
+				c.mark_as_referenced(mut &node.expr)
+			}
 		}
 		ast.IndexExpr {
 			c.mark_as_referenced(mut &node.left)
@@ -6103,14 +6113,16 @@ pub fn (mut c Checker) index_expr(mut node ast.IndexExpr) ast.Type {
 			typ = typ.set_nr_muls(0)
 		}
 	} else { // [1]
-		index_type := c.expr(node.index)
 		if typ_sym.kind == .map {
 			info := typ_sym.info as ast.Map
+			c.expected_type = info.key_type
+			index_type := c.expr(node.index)
 			if !c.check_types(index_type, info.key_type) {
 				err := c.expected_msg(index_type, info.key_type)
 				c.error('invalid key: $err', node.pos)
 			}
 		} else {
+			index_type := c.expr(node.index)
 			c.check_index(typ_sym, node.index, index_type, node.pos, false)
 		}
 		value_type := c.table.value_type(typ)
