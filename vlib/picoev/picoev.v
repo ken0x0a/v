@@ -34,7 +34,7 @@ mut:
 	sin_port   int
 	sin_addr   C.in_addr
 }
-	
+
 struct C.sockaddr_storage {}
 
 fn C.atoi() int
