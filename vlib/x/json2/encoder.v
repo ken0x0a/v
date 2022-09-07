@@ -63,7 +63,7 @@ fn (e &Encoder) encode_value_with_level(f Any, level int, mut wr io.Writer) ? {
 				wr.write(json2.false_in_bytes)?
 			}
 		}
-		int, u64, i64 {
+		int, u64, i64, u8, u16, u32, i8, i16, i32 {
 			wr.write(f.str().bytes())?
 		}
 		f32, f64 {

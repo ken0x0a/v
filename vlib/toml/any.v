@@ -355,6 +355,10 @@ pub fn (a Any) reflect<T>() T {
 			reflected.$(field.name) = a.value(toml_field_name).default_to(0).i64()
 		} $else $if field.typ is u64 {
 			reflected.$(field.name) = a.value(toml_field_name).default_to(0).u64()
+		} $else $if field.typ is u32 {
+			reflected.$(field.name) = u32(a.value(toml_field_name).default_to(0).u64())
+		} $else $if field.typ is usize {
+			reflected.$(field.name) = usize(a.value(toml_field_name).default_to(0).u64())
 		} $else $if field.typ is Any {
 			reflected.$(field.name) = a.value(toml_field_name)
 		} $else $if field.typ is DateTime {
@@ -506,6 +510,10 @@ pub fn (a Any) reflect<T>() T {
 				type_map[k] = any_value.time()
 			}
 			reflected.$(field.name) = type_map.clone()
+		} $else {
+			// tmp := reflected.$(field.name) // requires temp var to avoid compile error
+			// eprintln("[WARN]: Unsupported type `${typeof(tmp).name}` for `${T.name}.${field.name}` @ ${@METHOD}")
+			eprintln("[WARN]: Unsupported type `${field.typ}` for `${T.name}.${field.name}` @ ${@METHOD}")
 		}
 	}
 	return reflected
